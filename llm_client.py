@@ -1,0 +1,60 @@
+from __future__ import annotations
+
+import os
+from typing import List
+
+from dotenv import load_dotenv
+from openai import OpenAI
+
+
+load_dotenv()
+
+
+class LLMClient:
+    def __init__(self, model: str | None = None) -> None:
+        self.model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        self.client = OpenAI()
+
+    def generate_section(
+        self,
+        section_label: str,
+        project_description: str,
+        industry: str,
+        tech_code: str,
+        examples: List[str],
+        min_words: int,
+        max_words: int,
+    ) -> str:
+        examples_text = "\n\n---\n\n".join(examples) if examples else "No prior examples available."
+
+        system_message = (
+            "You are an expert SR&ED technical writer. "
+            "Write a clear, specific, CRA-aligned SR&ED section in professional business English. "
+            "Do not mention that you are an AI model. "
+            "Do not reference 'the examples' or 'the prompt' explicitly; just write the section."
+        )
+
+        user_message = (
+            f"Section: {section_label}\n\n"
+            f"Project context:\n"
+            f"- Industry: {industry or 'N/A'}\n"
+            f"- Tech code: {tech_code or 'N/A'}\n"
+            f"- Description: {project_description}\n\n"
+            f"Use the following approved SR&ED examples as style and content guidance:\n\n"
+            f"{examples_text}\n\n"
+            f"Now write a single, self-contained SR&ED section focused on {section_label.lower()}. "
+            f"Aim for between {min_words} and {max_words} words. "
+            f"Do not include headings or bullet points; use paragraphs only."
+        )
+
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_message},
+            ],
+        )
+
+        content = response.choices[0].message.content or ""
+        return content.strip()
+
