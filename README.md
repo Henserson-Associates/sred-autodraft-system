@@ -1,155 +1,68 @@
-# SR&ED Report Generator AI Agent System
+# SR&ED Report Generator
 
-[![Python](https://img.shields.io/badge/Python-3.12%2B-blue)](https://www.python.org/)
-[![LangChain](https://img.shields.io/badge/LangChain-Latest-green)](https://python.langchain.com/)
-[![Chroma](https://img.shields.io/badge/Chroma-DB-orange)](https://www.trychroma.com/)
+Generate SR&ED draft sections using retrieval-augmented LLMs. The system exposes a FastAPI service for report generation and ships with a lightweight React page (served statically) to exercise the endpoint.
 
 ## Overview
 
-This project is an AI agent system that automatically generates high-quality technical reports for Canada's **Scientific Research & Experimental Development (SR&ED)** tax incentive program.
-
-The reports always follow the same CRA-required structure—answers to **three core questions**:
-
-1. What was the technological uncertainty?  
-2. What systematic investigation or experimentation was conducted?  
-3. What technological advancement was achieved?
-
-The system learns from **100 approved reports** (positive examples) and avoids pitfalls from **50 rejected reports**.  
-Users only need to provide:  
-- Company industry (e.g., "pharmacy")  
-- Technology code (e.g., "01.01")  
-- Basic project description (e.g., "Developed AI-driven inventory software to predict drug shortages")
-
-The AI then produces a polished, CRA-ready draft report.
-
-## System Architecture
-
-```
-User Input
-    ↓
-Retrieval Agent
-    → Queries Chroma DB → Returns relevant approved examples
-    ↓
-Section Generator Agents (x3)
-    ├─ Uncertainty Generator
-    ├─ Systematic Investigation Generator
-    └─ Advancement Generator
-    ↓
-Reviewer Agent
-    → Scores draft, flags issues, loops back for fixes if needed
-    ↓
-Final Report (PDF/Word)
-```
-
-### Agent Details
-
-- **Retrieval Agent**  
-  Finds top similar approved sections using semantic search + metadata filters.
-
-- **Section Generator Agents**  
-  One agent per question. Uses retrieved examples + user input to write a section.
-
-- **Reviewer Agent**  
-  Checks completeness, specificity, CRA alignment, and rejection pitfalls.  
-  If score < threshold, sends targeted feedback to specific generators.
-
-### Workflow Summary
-
-1. User submits industry, tech code, project description.  
-2. Retrieval Agent pulls relevant approved chunks.  
-3. Three Generator Agents draft sections in parallel.  
-4. Sections merged → Reviewer Agent evaluates → iterate if needed.  
-5. Output formatted report.
+- Uses Chroma for semantic retrieval of approved SR&ED sections.
+- Generates three CRA-aligned sections: Technological Uncertainty, Systematic Investigation, Technological Advancement.
+- Wraps generation behind a REST API (`/api/generate`) and serves a simple in-browser client at `/`.
 
 ## Tech Stack
 
-| Layer              | Technology                              | Why |
-|--------------------|-----------------------------------------|-----|
-| LLM                | Grok-4 (via xAI API) or Grok-3 (free tier) | Excellent technical reasoning |
-| Agent Framework    | LangChain (or CrewAI)                   | Easy multi-agent orchestration |
-| Vector Database    | Chroma (local, free, lightweight)       | Simple, persistent, metadata filtering |
-| Embeddings         | Sentence Transformers (`all-MiniLM-L6-v2`) | Fast, local, no cost |
-| Chunking & Parsing | Custom Python scripts (provided below)  | Rule-based + manual cleanup |
-| Frontend | Streamlit                               | Quick UI for input/output |
-| Output Formatting  | python-docx or ReportLab                | Generate Word/PDF |
-| Environment        | Python 3.12+, pip                       | Standard |
+| Layer              | Technology                              |
+|--------------------|-----------------------------------------|
+| API                | FastAPI + Uvicorn                       |
+| Retrieval          | ChromaDB + Sentence Transformers (`all-MiniLM-L6-v2`) |
+| LLM                | OpenAI Chat Completions (model via `OPENAI_MODEL`) |
+| Frontend           | React (CDN), static files served by FastAPI |
+| Utilities          | python-docx / ReportLab for formatting (future use) |
 
-## Data Preparation
+## Setup
 
-### Folder Structure
-```
-data/
-├── approved/          # 100 approved reports (PDF/Word/text)
-├── rejected/          # 50 rejected reports
-└── processed/         # JSON metadata after ingestion
-chroma_db/             # Chroma persistence folder
-```
+1. Install Python 3.12+.  
+2. Install deps: `pip install -r requirements.txt`.  
+3. Place approved/rejected markdown reports under `data/approved/` and `data/rejected/`.  
+4. Build the vector store: `python scripts/ingest.py` (writes `chroma_db/`).  
+5. Start the API + frontend: `uvicorn app:app --reload` (API under `/api`, UI at `/`).  
+6. Open `http://localhost:8000/`, fill the form, and click **Generate Draft**.
 
-### Steps
-1. Extract text from reports.  
-2. Anonymize company names, financials.  
-3. Parse each report into **three sections**.  
-4. Add metadata: `industry`, `tech_code`, `status` ("approved"), `section`.  
-5. Embed and store in Chroma.
+## API
 
-## Vector Storage (Chroma)
+- `GET /api/health` → `{ "status": "ok" }`
+- `POST /api/generate`
+  - Request body:
+    ```json
+    {
+      "industry": "pharmacy",
+      "tech_code": "01.01",
+      "project_description": "Brief project summary"
+    }
+    ```
+  - Response:
+    ```json
+    {
+      "sections": {
+        "uncertainty": "...",
+        "systematic_investigation": "...",
+        "technological_advancement": "..."
+      }
+    }
+    ```
 
-Create a single collection: `sred_reports`
+## Data Prep Notes
 
-Metadata fields:
-```json
-{
-  "report_id": "001",
-  "project_title": "Development of a Motion Tracking and Analysis System for Martial Arts Instruction",
-  "status": "approved",
-  "industry": "pharmacy",
-  "tech_code": "01.01",
-  "section": "systematic_investigation"
-}
-```
+- `scripts/parse_markdown_reports.py` parses markdown reports into `data/processed/approved_sections.jsonl`.
+- `scripts/ingest.py` embeds those sections and stores them in `chroma_db/`.
+- `agents.py` wires retrieval + generation; `llm_client.py` wraps the OpenAI client.
 
-## Chunking Strategy
+## Environment
 
-Store each full section as one chunk for all questions (~300–900 words).
+- Required env vars: `OPENAI_API_KEY` (and optionally `OPENAI_MODEL`).
+- Default model: `gpt-4o-mini`.
 
-## Retrieval & Context Management
+## Future Ideas
 
-### Retrieval Example (LangChain)
-```python
-results = collection.query(
-    query_texts=[project_description],
-    n_results=5,
-    where={"status": "approved", "section": "systematic_investigation"}
-)
-```
-
-## Setup Instructions
-
-1. Clone repo  
-2. `pip install langchain chromadb sentence-transformers python-docx streamlit`  
-3. Put reports in `data/approved/` and `data/rejected/`  
-4. Run `python scripts/ingest.py` → creates Chroma DB  
-5. `streamlit run app.py` → Web UI ready  
-
-## Running a Generation
-
-UI fields:  
-- Industry  
-- Tech Code  
-- Project Description  
-
-Click "Generate" → Draft appears in ~30–60 seconds.  
-Download as Word/PDF.  
-Always review with SR&ED consultant before submission!
-
-## Future Improvements
-
-- Fine-tune a small model on approved reports  
-- Add rejected-report classifier for Reviewer  
-- Bulk generation endpoint  
-- Auto-fill CRA Form T661  
-
-## Questions?
-
-Open an issue or ping the coding agent.  
-This system routinely produces reports that match the quality of top SR&ED consultants—happy claiming! 🚀
+- Add rejection classifier and iterative reviewer agent.
+- Expand UI for bulk generation and downloads.
+- Swap in self-hosted or fine-tuned models to reduce cost.

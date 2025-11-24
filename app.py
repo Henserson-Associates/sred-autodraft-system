@@ -1,51 +1,60 @@
 from __future__ import annotations
 
-import textwrap
+from pathlib import Path
+from typing import Dict
 
-import streamlit as st
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 from agents import ReportGenerator
 
 
-st.set_page_config(page_title="SR&ED Report Generator", layout="wide")
+BASE_DIR = Path(__file__).resolve().parent
+FRONTEND_DIR = BASE_DIR / "frontend"
 
-st.title("SR&ED Report Generator")
-st.write(
-    "Provide your project details below. The system will retrieve similar approved SR&ED examples "
-    "and assemble draft sections for you to refine."
+app = FastAPI(
+    title="SR&ED Report Generator API",
+    description="Generate SR&ED draft sections based on project inputs.",
+    version="0.1.0",
 )
 
-with st.sidebar:
-    st.header("Project Inputs")
-    industry = st.text_input("Industry", placeholder="e.g., pharmacy")
-    tech_code = st.text_input("Tech Code", placeholder="e.g., 01.01")
-    project_description = st.text_area(
-        "Project Description",
-        height=160,
-        placeholder="Briefly describe the SR&ED project you are claiming.",
+generator = ReportGenerator()
+
+
+class ReportRequest(BaseModel):
+    industry: str = Field("", description="Industry or domain, e.g., pharmacy.")
+    tech_code: str = Field("", description="Technology code, e.g., 01.01.")
+    project_description: str = Field(..., min_length=10, description="Brief project summary.")
+
+
+class ReportResponse(BaseModel):
+    sections: Dict[str, str]
+
+
+@app.get("/api/health", response_class=JSONResponse, tags=["system"])
+def health() -> Dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.post("/api/generate", response_model=ReportResponse, tags=["reports"])
+def generate_report(request: ReportRequest) -> ReportResponse:
+    if not request.project_description.strip():
+        raise HTTPException(status_code=400, detail="Project description is required.")
+
+    sections = generator.generate_report(
+        industry=request.industry.strip(),
+        tech_code=request.tech_code.strip(),
+        project_description=request.project_description.strip(),
     )
 
-    generate = st.button("Generate Draft")
+    return ReportResponse(sections=sections)
 
-output_placeholder = st.empty()
 
-if generate:
-    if not project_description.strip():
-        st.warning("Please provide a project description before generating a draft.")
-    else:
-        try:
-            generator = ReportGenerator()
-            sections = generator.generate_report(
-                industry=industry.strip(),
-                tech_code=tech_code.strip(),
-                project_description=project_description.strip(),
-            )
-
-            with output_placeholder.container():
-                st.subheader("Draft SR&ED Report Sections")
-                for key, content in sections.items():
-                    st.markdown(f"### {key.replace('_', ' ').title()}")
-                    st.markdown(textwrap.dedent(content))
-        except Exception as exc:
-            st.error(f"Error generating report: {exc}")
-
+if FRONTEND_DIR.exists():
+    app.mount(
+        "/",
+        StaticFiles(directory=str(FRONTEND_DIR), html=True),
+        name="frontend",
+    )

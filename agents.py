@@ -54,11 +54,21 @@ class RetrievalAgent:
         industry: str | None = None,
         n_results: int = 5,
     ) -> List[RetrievedExample]:
-        where: Dict[str, str] = {"status": "approved", "section": section}
+        # Build where filter with proper Chroma syntax
+        conditions = [
+            {"status": "approved"},
+            {"section": section},
+        ]
         if tech_code:
-            where["tech_code"] = tech_code
+            conditions.append({"tech_code": tech_code})
         if industry:
-            where["industry"] = industry
+            conditions.append({"industry": industry})
+
+        # Combine conditions with $and operator
+        if len(conditions) == 1:
+            where = conditions[0]
+        else:
+            where = {"$and": conditions}
 
         query_embedding = self.embedding_model.encode([query])
 

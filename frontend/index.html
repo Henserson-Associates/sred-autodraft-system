@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SR&ED Report Generator</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f7fb;
+        --panel: #ffffff;
+        --ink: #0f172a;
+        --muted: #475569;
+        --accent: #2563eb;
+        --border: #e2e8f0;
+        --shadow: 0 12px 35px rgba(15, 23, 42, 0.08);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: "Inter", system-ui, -apple-system, sans-serif;
+        background: radial-gradient(circle at 20% 20%, #e0e7ff, transparent 30%),
+          radial-gradient(circle at 80% 0%, #cffafe, transparent 30%),
+          var(--bg);
+        color: var(--ink);
+      }
+      header {
+        padding: 24px;
+        text-align: center;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 28px;
+        letter-spacing: -0.02em;
+      }
+      header p {
+        margin: 8px 0 0;
+        color: var(--muted);
+      }
+      main {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 0 20px 40px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+        gap: 20px;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 20px;
+        box-shadow: var(--shadow);
+      }
+      label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      input,
+      textarea {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        font-size: 14px;
+        background: #fbfdff;
+      }
+      textarea {
+        min-height: 160px;
+        resize: vertical;
+      }
+      button {
+        margin-top: 12px;
+        width: 100%;
+        padding: 12px;
+        border: none;
+        border-radius: 10px;
+        background: var(--accent);
+        color: white;
+        font-weight: 700;
+        font-size: 15px;
+        cursor: pointer;
+        transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+        box-shadow: 0 10px 20px rgba(37, 99, 235, 0.25);
+      }
+      button:hover {
+        transform: translateY(-1px);
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+      }
+      .status {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .sections h3 {
+        margin: 0 0 6px;
+        font-size: 16px;
+      }
+      .sections article {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px 14px;
+        margin-bottom: 12px;
+        background: #f8fafc;
+      }
+      .empty {
+        color: var(--muted);
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>SR&ED Report Generator</h1>
+      <p>Send project inputs to the API and preview drafted sections.</p>
+    </header>
+    <main>
+      <div id="root"></div>
+    </main>
+
+    <script type="module">
+      import React, { useState } from "https://esm.sh/react@18.3.1";
+      import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
+
+      const Results = ({ sections }) => {
+        const entries = Object.entries(sections || {});
+        if (!entries.length) {
+          return React.createElement("div", { className: "empty" }, "Results will appear here after calling the API.");
+        }
+        return React.createElement(
+          "div",
+          { className: "sections" },
+          entries.map(([key, value]) =>
+            React.createElement(
+              "article",
+              { key },
+              React.createElement("h3", null, key.replace(/_/g, " ")),
+              React.createElement("p", {
+                style: { margin: 0, lineHeight: 1.6, whiteSpace: "pre-line" },
+              }, value)
+            )
+          )
+        );
+      };
+
+      const App = () => {
+        const [industry, setIndustry] = useState("");
+        const [techCode, setTechCode] = useState("");
+        const [description, setDescription] = useState("");
+        const [sections, setSections] = useState({});
+        const [loading, setLoading] = useState(false);
+        const [error, setError] = useState("");
+
+        const submit = async (e) => {
+          e.preventDefault();
+          setError("");
+          setSections({});
+
+          if (!description.trim()) {
+            setError("Project description is required.");
+            return;
+          }
+
+          setLoading(true);
+          try {
+            const res = await fetch("/api/generate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                industry,
+                tech_code: techCode,
+                project_description: description,
+              }),
+            });
+
+            if (!res.ok) {
+              const detail = await res.json().catch(() => ({}));
+              throw new Error(detail?.detail || "Failed to generate report.");
+            }
+
+            const data = await res.json();
+            setSections(data.sections || {});
+          } catch (err) {
+            setError(err.message);
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        return React.createElement(
+          "div",
+          { className: "grid" },
+          React.createElement(
+            "section",
+            { className: "panel" },
+            React.createElement(
+              "form",
+              { onSubmit: submit },
+              React.createElement("label", { htmlFor: "industry" }, "Industry"),
+              React.createElement("input", {
+                id: "industry",
+                placeholder: "e.g., pharmacy",
+                value: industry,
+                onChange: (e) => setIndustry(e.target.value),
+                autoComplete: "off",
+              }),
+              React.createElement("label", { htmlFor: "tech" }, "Tech Code"),
+              React.createElement("input", {
+                id: "tech",
+                placeholder: "e.g., 01.01",
+                value: techCode,
+                onChange: (e) => setTechCode(e.target.value),
+                autoComplete: "off",
+              }),
+              React.createElement("label", { htmlFor: "desc" }, "Project Description"),
+              React.createElement("textarea", {
+                id: "desc",
+                placeholder: "Briefly describe the SR&ED project...",
+                value: description,
+                onChange: (e) => setDescription(e.target.value),
+              }),
+              React.createElement(
+                "button",
+                { type: "submit", disabled: loading },
+                loading ? "Generating..." : "Generate Draft"
+              ),
+              React.createElement(
+                "div",
+                { className: "status" },
+                loading ? "Calling /api/generate..." : "Enter details and submit to call the FastAPI endpoint."
+              ),
+              error && React.createElement("div", { style: { color: "#b91c1c", marginTop: 8 } }, error)
+            )
+          ),
+          React.createElement(
+            "section",
+            { className: "panel" },
+            React.createElement("h3", { style: { marginTop: 0 } }, "Results"),
+            React.createElement(Results, { sections })
+          )
+        );
+      };
+
+      const root = createRoot(document.getElementById("root"));
+      root.render(React.createElement(App));
+    </script>
+  </body>
+</html>
