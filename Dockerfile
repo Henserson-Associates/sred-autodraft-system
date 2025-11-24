@@ -11,8 +11,8 @@ COPY requirements.txt ./
 RUN python -m pip install --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY app ./app
 
-EXPOSE 8080
-
-CMD ["sh","-c","uvicorn app:app --host 0.0.0.0 --port ${PORT}"]
+# Do NOT hardcode PORT here; let Cloud Run provide it.
+# Provide a safe default fallback to 8080 when running locally:
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
