@@ -48,9 +48,33 @@ class SectionRecord:
 def read_lines(path: Path) -> List[str]:
     return path.read_text(encoding="utf-8").splitlines()
 
+def extract_project_id(lines: List[str]) -> str:
+    for line in lines:
+        match = re.search(r"id:\s*(\S+)", line)
+        if match:
+            return match.group(1)
+    return ""
+
+
+def extract_industry(lines: List[str]) -> str:
+    for line in lines:
+        match = re.search(r"industry:\s*(.+)", line)
+        if match:
+            return match.group(1).strip()
+    return ""
 
 def extract_project_title(lines: List[str]) -> str:
-    # Strategy 1: look for explicit **200** marker and take the next meaningful line
+    # Strategy 1: some files place the title immediately after a 'Section A - Project Identification' header
+    for i, line in enumerate(lines):
+        if re.search(r"Section\s*A\b.*Project Identification", line, re.IGNORECASE):
+            for j in range(i + 1, min(len(lines), i + 8)):
+                candidate = lines[j].strip()
+                if not candidate or candidate.startswith("**") or re.search(r":\s*$", candidate):
+                    continue
+                return candidate
+            break
+
+    # Strategy 2: look for explicit **200** marker and take the next meaningful line
     for i, line in enumerate(lines):
         if re.search(r"\*\*200\*\*", line):
             for j in range(i + 1, min(len(lines), i + 8)):
@@ -62,16 +86,6 @@ def extract_project_title(lines: List[str]) -> str:
                     continue
                 # skip lines that look like field labels (end with ':' or contain multiple field markers)
                 if re.search(r":\s*$", candidate):
-                    continue
-                return candidate
-            break
-
-    # Strategy 2: some files place the title immediately after a 'Section A - Project Identification' header
-    for i, line in enumerate(lines):
-        if re.search(r"Section\s*A\b.*Project Identification", line, re.IGNORECASE):
-            for j in range(i + 1, min(len(lines), i + 8)):
-                candidate = lines[j].strip()
-                if not candidate or candidate.startswith("**") or re.search(r":\s*$", candidate):
                     continue
                 return candidate
             break
@@ -157,13 +171,15 @@ def parse_report(path: Path, report_id: str) -> Iterable[SectionRecord]:
     project_title = extract_project_title(lines)
     tech_code = extract_tech_code(lines)
     sections = extract_sections(lines)
+    report_id_extracted = extract_project_id(lines)
+    industry_extracted = extract_industry(lines)
 
     for section_name, text in sections.items():
         yield SectionRecord(
-            report_id=report_id,
+            report_id=report_id_extracted,
             project_title=project_title,
             status="approved",
-            industry="",  # industry not present in markdown; left blank
+            industry=industry_extracted,
             tech_code=tech_code,
             section=section_name,
             text=text,
