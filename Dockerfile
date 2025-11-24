@@ -7,12 +7,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY requirements.txt ./
-RUN python -m pip install --upgrade pip \
+# 1. Install dependencies first to leverage Docker layer caching
+COPY requirements.txt .
+RUN pip install --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
-COPY app ./app
+# 2. Copy ALL files (app.py, agents.py, chroma_db/, frontend/) to the container
+# This ensures your code and the database are present.
+COPY . .
 
-# Do NOT hardcode PORT here; let Cloud Run provide it.
-# Provide a safe default fallback to 8080 when running locally:
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+# 3. Optional: Download the ML model during build time
+# This prevents the app from downloading 80MB+ on every startup (Cold Start).
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
+# 4. Corrected Command
+# Uses 'app:app' because your file is named 'app.py' and the FastAPI instance is 'app'
+CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}"]
