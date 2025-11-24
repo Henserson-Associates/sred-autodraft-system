@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List
@@ -30,6 +31,8 @@ WORD_LIMITS = {
     "technological_advancement": (300, 350),
 }
 
+logger = logging.getLogger("sred_app.agents")
+
 
 @dataclass
 class RetrievedExample:
@@ -45,6 +48,7 @@ class RetrievalAgent:
             settings=Settings(allow_reset=False),
         )
         self.collection = self.client.get_collection(COLLECTION_NAME)
+        logger.info("RetrievalAgent initialized with collection=%s", COLLECTION_NAME)
 
     def retrieve(
         self,
@@ -77,6 +81,13 @@ class RetrievalAgent:
             n_results=n_results,
             where=where,
         )
+        logger.info(
+            "Retrieved examples for section=%s tech_code=%s industry=%s results=%d",
+            section,
+            tech_code or "N/A",
+            industry or "N/A",
+            len(results.get("ids", [[]])[0]),
+        )
 
         documents = results.get("documents", [[]])[0]
         metadatas = results.get("metadatas", [[]])[0]
@@ -96,12 +107,18 @@ class SimpleGeneratorAgent:
         self,
         section: str,
         industry: str,
-        tech_code: str,
-        project_description: str,
+        tech_code: str | None,
+        project_description: str | None,
+        company_summary: str | None = None,
     ) -> str:
         label = SECTION_LABELS.get(section, section)
         min_words, max_words = WORD_LIMITS.get(section, (300, 350))
-        query = f"Industry: {industry}\nTech code: {tech_code}\nDescription: {project_description}"
+        query_lines = [f"Industry: {industry}"]
+        query_lines.append(f"Tech code: {tech_code or 'N/A'}")
+        if company_summary:
+            query_lines.append(f"Company summary: {company_summary}")
+        query_lines.append(f"Description: {project_description or 'N/A'}")
+        query = "\n".join(query_lines)
 
         examples = self.retrieval_agent.retrieve(
             query=query,
@@ -118,12 +135,20 @@ class SimpleGeneratorAgent:
 
         generated = self.llm.generate_section(
             section_label=label,
-            project_description=project_description,
+            project_description=project_description or "",
             industry=industry,
-            tech_code=tech_code,
+            tech_code=tech_code or "",
+            company_summary=company_summary,
             examples=example_texts,
             min_words=min_words,
             max_words=max_words,
+        )
+        logger.info(
+            "Generated section=%s words_target=%d-%d examples_used=%d",
+            section,
+            min_words,
+            max_words,
+            len(example_texts),
         )
 
         return generated
@@ -138,8 +163,9 @@ class ReportGenerator:
     def generate_report(
         self,
         industry: str,
-        tech_code: str,
-        project_description: str,
+        tech_code: str | None,
+        project_description: str | None,
+        company_summary: str | None = None,
     ) -> Dict[str, str]:
         sections = {}
         for section_key in ("uncertainty", "systematic_investigation", "technological_advancement"):
@@ -148,5 +174,6 @@ class ReportGenerator:
                 industry=industry,
                 tech_code=tech_code,
                 project_description=project_description,
+                company_summary=company_summary,
             )
         return sections

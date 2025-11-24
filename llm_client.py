@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from typing import List
 
@@ -9,11 +10,14 @@ from openai import OpenAI
 
 load_dotenv()
 
+logger = logging.getLogger("sred_app.llm")
+
 
 class LLMClient:
     def __init__(self, model: str | None = None) -> None:
         self.model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         self.client = OpenAI()
+        logger.info("LLMClient initialized model=%s", self.model)
 
     def generate_section(
         self,
@@ -24,6 +28,7 @@ class LLMClient:
         examples: List[str],
         min_words: int,
         max_words: int,
+        company_summary: str | None = None,
     ) -> str:
         examples_text = "\n\n---\n\n".join(examples) if examples else "No prior examples available."
 
@@ -39,6 +44,7 @@ class LLMClient:
             f"Project context:\n"
             f"- Industry: {industry or 'N/A'}\n"
             f"- Tech code: {tech_code or 'N/A'}\n"
+            f"- Company summary: {company_summary or 'N/A'}\n"
             f"- Description: {project_description}\n\n"
             f"Use the following approved SR&ED examples as style and content guidance:\n\n"
             f"{examples_text}\n\n"
@@ -53,6 +59,11 @@ class LLMClient:
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": user_message},
             ],
+        )
+        logger.info(
+            "LLM response received section=%s chars=%d",
+            section_label,
+            len(response.choices[0].message.content or ""),
         )
 
         content = response.choices[0].message.content or ""

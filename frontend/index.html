@@ -157,45 +157,64 @@
         const [industry, setIndustry] = useState("");
         const [techCode, setTechCode] = useState("");
         const [description, setDescription] = useState("");
+        const [companySummary, setCompanySummary] = useState("");
         const [sections, setSections] = useState({});
         const [loading, setLoading] = useState(false);
         const [error, setError] = useState("");
 
         const submit = async (e) => {
           e.preventDefault();
-          setError("");
-          setSections({});
+        setError("");
+        setSections({});
 
-          if (!description.trim()) {
-            setError("Project description is required.");
-            return;
+        if (!industry.trim()) {
+          setError("Industry is required.");
+          return;
+        }
+
+        setLoading(true);
+        try {
+          const payload = {
+            industry,
+            tech_code: techCode,
+            project_description: description,
+            company_summary: companySummary,
+          };
+          console.log("[UI] Submitting payload", {
+            ...payload,
+            project_description_len: description.length,
+            company_summary_len: companySummary.length,
+          });
+
+          const res = await fetch("/api/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          console.log("[UI] Response received", res.status, res.statusText);
+
+          if (!res.ok) {
+            const detail = await res.json().catch(() => ({}));
+            console.warn("[UI] Non-200 response body", detail);
+            throw new Error(detail?.detail || "Failed to generate report.");
           }
 
-          setLoading(true);
-          try {
-            const res = await fetch("/api/generate", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                industry,
-                tech_code: techCode,
-                project_description: description,
-              }),
-            });
-
-            if (!res.ok) {
-              const detail = await res.json().catch(() => ({}));
-              throw new Error(detail?.detail || "Failed to generate report.");
-            }
-
-            const data = await res.json();
-            setSections(data.sections || {});
-          } catch (err) {
-            setError(err.message);
-          } finally {
-            setLoading(false);
-          }
-        };
+          const data = await res.json();
+          console.log("[UI] Sections returned", {
+            keys: Object.keys(data.sections || {}),
+            lengths: Object.fromEntries(
+              Object.entries(data.sections || {}).map(([k, v]) => [k, (v || "").length])
+            ),
+          });
+          setSections(data.sections || {});
+        } catch (err) {
+          console.error("[UI] Generate error", err);
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
 
         return React.createElement(
           "div",
@@ -221,6 +240,13 @@
                 value: techCode,
                 onChange: (e) => setTechCode(e.target.value),
                 autoComplete: "off",
+              }),
+              React.createElement("label", { htmlFor: "company" }, "Company Summary (optional)"),
+              React.createElement("textarea", {
+                id: "company",
+                placeholder: "Short summary about the company...",
+                value: companySummary,
+                onChange: (e) => setCompanySummary(e.target.value),
               }),
               React.createElement("label", { htmlFor: "desc" }, "Project Description"),
               React.createElement("textarea", {
