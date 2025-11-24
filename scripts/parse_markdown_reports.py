@@ -50,28 +50,69 @@ def read_lines(path: Path) -> List[str]:
 
 
 def extract_project_title(lines: List[str]) -> str:
+    # Strategy 1: look for explicit **200** marker and take the next meaningful line
     for i, line in enumerate(lines):
         if re.search(r"\*\*200\*\*", line):
-            for j in range(i + 1, len(lines)):
+            for j in range(i + 1, min(len(lines), i + 8)):
                 candidate = lines[j].strip()
-                if candidate:
-                    return candidate
+                if not candidate:
+                    continue
+                # skip other field markers like '**204**:' etc
+                if candidate.startswith("**"):
+                    continue
+                # skip lines that look like field labels (end with ':' or contain multiple field markers)
+                if re.search(r":\s*$", candidate):
+                    continue
+                return candidate
             break
+
+    # Strategy 2: some files place the title immediately after a 'Section A - Project Identification' header
+    for i, line in enumerate(lines):
+        if re.search(r"Section\s*A\b.*Project Identification", line, re.IGNORECASE):
+            for j in range(i + 1, min(len(lines), i + 8)):
+                candidate = lines[j].strip()
+                if not candidate or candidate.startswith("**") or re.search(r":\s*$", candidate):
+                    continue
+                return candidate
+            break
+
+    # Strategy 3: fallback heuristics — find a line that looks like a project title
+    for line in lines:
+        s = line.strip()
+        if not s:
+            continue
+        if s.startswith("**"):
+            continue
+        # avoid field label lines like 'Project Start Date' or table header lines
+        if re.search(r"\b(Project|Section|Company|Completion|Field of science)\b", s, re.IGNORECASE):
+            continue
+        # prefer lines that include a separator commonly used in titles (hyphen or en-dash)
+        if " - " in s or "–" in s or "—" in s:
+            return s
+
     return ""
 
 
 def extract_tech_code(lines: List[str]) -> str:
+    code_re = re.compile(r"(\d{1,2}\.\d{2}\.\d{2})")
+
+    # If **206** marker exists, search a small window around it (previous and next few lines)
     for i, line in enumerate(lines):
         if re.search(r"\*\*206\*\*", line):
-            for j in range(i + 1, len(lines)):
-                candidate = lines[j].strip()
-                if not candidate:
-                    continue
-                match = re.search(r"(\d{1,2}\.\d{2}\.\d{2})", candidate)
+            start = max(0, i - 3)
+            end = min(len(lines), i + 4)
+            for j in range(start, end):
+                match = code_re.search(lines[j])
                 if match:
                     return match.group(1)
-                break
             break
+
+    # Fallback: scan entire document for the first plausible tech code
+    for line in lines:
+        match = code_re.search(line)
+        if match:
+            return match.group(1)
+
     return ""
 
 
