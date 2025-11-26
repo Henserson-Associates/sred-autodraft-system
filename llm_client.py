@@ -30,14 +30,21 @@ class LLMClient:
         max_words: int,
         company_summary: str | None = None,
     ) -> str:
-        examples_text = "\n\n---\n\n".join(examples) if examples else "No prior examples available."
-
-        system_message = (
-            "You are an expert SR&ED technical writer. "
-            "Write a clear, specific, CRA-aligned SR&ED section in professional business English. "
-            "Do not mention that you are an AI model. "
-            "Do not reference 'the examples' or 'the prompt' explicitly; just write the section."
+        examples_text = (
+            "\n\n---\n\n".join(examples) if examples else "No prior examples available."
         )
+
+        system_message = """You are an expert SR&ED technical writer specializing in preparing clear, specific, CRA-aligned technical narratives.
+            Your goals:
+            1. Write objectively, in professional business English, suitable for a CRA technical reviewer.
+            2. Do NOT mention or repeat the company name; refer to the organization using neutral terms such as “the team,” “the engineering group,” or “the R&D project.”
+            3. Include realistic technical details, sample quantitative data, or plausible metrics (e.g., iteration counts, failure rates, dataset sizes, timing benchmarks, volumes of records, approximate parameters). 
+            - These details must sound credible but must never contradict the project description.
+            4. Avoid generic or overly “successful” language; realistically describe obstacles, uncertainties, technical limitations, and remaining challenges.
+            5. Do not mention that you are an AI model.
+            6. Do not reference the prompt, examples, or instructions. Write as a fully self-contained SR&ED section.
+            7. Ensure the content is unique and not directly copied from the examples.
+        """
 
         user_message = (
             f"Section: {section_label}\n\n"
@@ -50,7 +57,9 @@ class LLMClient:
             f"{examples_text}\n\n"
             f"Now write a single, self-contained SR&ED section focused on {section_label.lower()}. "
             f"Aim for between {min_words} and {max_words} words. "
-            f"Do not include headings or bullet points; use paragraphs only."
+            f"Format: paragraphs only; no headings or bullet points."
+            f"Do NOT mention or repeat the company name. Use neutral phrasing (e.g., “the team,” “the development group,” “the project”)."
+            f"Include realistic engineering details, sample metrics, and plausible data points that add credibility."
         )
 
         response = self.client.chat.completions.create(
@@ -68,4 +77,3 @@ class LLMClient:
 
         content = response.choices[0].message.content or ""
         return content.strip()
-
