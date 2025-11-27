@@ -15,7 +15,7 @@ PROCESSED_PATH = PROCESSED_DIR / "approved_sections.jsonl"
 CHROMA_DIR = BASE_DIR / "chroma_db"
 
 COLLECTION_NAME = "sred_reports"
-EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+EMBEDDING_MODEL_NAME = "all-mpnet-base-v2"
 
 
 def load_records(path: Path) -> List[Dict[str, Any]]:
@@ -33,16 +33,29 @@ def load_records(path: Path) -> List[Dict[str, Any]]:
 
 
 def build_text(record: Dict[str, Any]) -> str:
+    # MODIFICATION: Inject metadata (Industry/Tech Code) into the text 
+    # so the embedding model explicitly indexes these terms.
+    parts = []
+    
+    # 1. Add Metadata Header
+    industry = record.get("industry") or "Unknown Industry"
+    tech_code = record.get("tech_code") or "Unknown Code"
+    parts.append(f"Industry: {industry}")
+    parts.append(f"Tech Code: {tech_code}")
+    
+    # 2. Add Original Content
     title = record.get("project_title") or ""
     section = record.get("section") or ""
     text = record.get("text") or ""
-    parts = []
+    
     if title:
-        parts.append(title)
+        parts.append(f"Project: {title}")
     if section:
-        parts.append(f"[{section}]")
+        # Changed from "[section]" to explicit text for better semantic understanding
+        parts.append(f"Section Type: {section}") 
     if text:
         parts.append(text)
+        
     return "\n\n".join(parts)
 
 

@@ -16,7 +16,8 @@ BASE_DIR = Path(__file__).resolve().parent
 CHROMA_DIR = BASE_DIR / "chroma_db"
 
 COLLECTION_NAME = "sred_reports"
-EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+# UPGRADE: Must match the model used in scripts/ingest.py
+EMBEDDING_MODEL_NAME = "all-mpnet-base-v2"
 
 
 SECTION_LABELS = {
@@ -42,13 +43,13 @@ class RetrievedExample:
 
 class RetrievalAgent:
     def __init__(self) -> None:
+        # This will download the new model automatically on first run
         self.embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
         self.client = chromadb.PersistentClient(
             path=str(CHROMA_DIR),
             settings=Settings(allow_reset=False),
         )
         self.collection = self.client.get_collection(COLLECTION_NAME)
-        logger.info("RetrievalAgent initialized with collection=%s", COLLECTION_NAME)
 
     def retrieve(
         self,
@@ -58,50 +59,64 @@ class RetrievalAgent:
         industry: str | None = None,
         n_results: int = 5,
     ) -> List[RetrievedExample]:
-        # Build where filter with proper Chroma syntax
-        conditions = [
-            {"status": "approved"},
-            {"section": section},
-        ]
-        if tech_code:
-            conditions.append({"tech_code": tech_code})
-        if industry:
-            conditions.append({"industry": industry})
-
-        # Combine conditions with $and operator
-        if len(conditions) == 1:
-            where = conditions[0]
-        else:
-            where = {"$and": conditions}
-
+        # (This uses the robust fallback logic from Step 2)
         query_embedding = self.embedding_model.encode([query])
 
-        results = self.collection.query(
-            query_embeddings=query_embedding,
-            n_results=n_results,
-            where=where,
-        )
-        logger.info(
-            "Retrieved examples for section=%s tech_code=%s industry=%s results=%d",
-            section,
-            tech_code or "N/A",
-            industry or "N/A",
-            len(results.get("ids", [[]])[0]),
-        )
+        def _execute_query(conditions: List[Dict]) -> Dict:
+            if len(conditions) == 1:
+                where_clause = conditions[0]
+            else:
+                where_clause = {"$and": conditions}
+            return self.collection.query(
+                query_embeddings=query_embedding,
+                n_results=n_results,
+                where=where_clause,
+            )
 
-        documents = results.get("documents", [[]])[0]
-        metadatas = results.get("metadatas", [[]])[0]
+        strict_conditions = [{"status": "approved"}, {"section": section}]
+        if industry: strict_conditions.append({"industry": industry})
+        if tech_code: strict_conditions.append({"tech_code": tech_code})
 
+        results = _execute_query(strict_conditions)
+        found_docs = results.get("documents", [[]])[0]
+        found_metas = results.get("metadatas", [[]])[0]
+
+        # Fallback Logic
+        if len(found_docs) < n_results and tech_code:
+            logger.info("Retrying with relaxed filters (ignoring tech_code)...")
+            relaxed_conditions = [{"status": "approved"}, {"section": section}]
+            if industry: relaxed_conditions.append({"industry": industry})
+            
+            relaxed = _execute_query(relaxed_conditions)
+            found_docs.extend(relaxed.get("documents", [[]])[0])
+            found_metas.extend(relaxed.get("metadatas", [[]])[0])
+        
         examples: List[RetrievedExample] = []
-        for doc, meta in zip(documents, metadatas):
-            examples.append(RetrievedExample(text=doc, metadata=meta or {}))
-        return examples
+        seen = set()
+        for doc, meta in zip(found_docs, found_metas):
+            if doc not in seen:
+                seen.add(doc)
+                examples.append(RetrievedExample(text=doc, metadata=meta or {}))
+        
+        return examples[:n_results]
+
+
+class ReviewerAgent:
+    """New Agent responsible for Critiquing Drafts."""
+    def __init__(self):
+        # OPTIMIZATION: Use GPT-4o for the 'Reviewer' to ensure strict, high-quality critique.
+        # This agent needs to be smarter than the generator to catch subtle mistakes.
+        self.llm = LLMClient(model="gpt-4o")
+
+    def review(self, section: str, draft: str) -> str:
+        return self.llm.review_draft(section, draft)
 
 
 class SimpleGeneratorAgent:
     def __init__(self, retrieval_agent: RetrievalAgent) -> None:
         self.retrieval_agent = retrieval_agent
-        self.llm = LLMClient()
+        # OPTIMIZATION: Use GPT-4o-mini for the 'Generator' for speed and cost-efficiency.
+        self.llm = LLMClient(model="gpt-4o-mini")
 
     def generate_section(
         self,
@@ -113,52 +128,43 @@ class SimpleGeneratorAgent:
     ) -> str:
         label = SECTION_LABELS.get(section, section)
         min_words, max_words = WORD_LIMITS.get(section, (300, 350))
-        query_lines = [f"Industry: {industry}"]
-        query_lines.append(f"Tech code: {tech_code or 'N/A'}")
-        if company_summary:
-            query_lines.append(f"Company summary: {company_summary}")
-        query_lines.append(f"Description: {project_description or 'N/A'}")
-        query = "\n".join(query_lines)
-
+        
+        query = f"Industry: {industry}\nTech: {tech_code}\nDesc: {project_description}"
+        
         examples = self.retrieval_agent.retrieve(
             query=query,
             section=section,
-            tech_code=tech_code or None,
-            industry=industry or None,
+            tech_code=tech_code,
+            industry=industry,
             n_results=3,
         )
 
-        example_texts: List[str] = []
+        example_texts = []
         for ex in examples:
-            project_title = ex.metadata.get("project_title") or "Example project"
-            example_texts.append(f"Project: {project_title}\n\n{ex.text}")
+            title = ex.metadata.get("project_title", "Example")
+            example_texts.append(f"Project: {title}\n\n{ex.text}")
 
-        generated = self.llm.generate_section(
+        return self.llm.generate_section(
             section_label=label,
             project_description=project_description or "",
             industry=industry,
             tech_code=tech_code or "",
-            company_summary=company_summary,
             examples=example_texts,
             min_words=min_words,
             max_words=max_words,
-        )
-        logger.info(
-            "Generated section=%s words_target=%d-%d examples_used=%d",
-            section,
-            min_words,
-            max_words,
-            len(example_texts),
+            company_summary=company_summary,
         )
 
-        return generated
+    def refine_section(self, section: str, draft: str, feedback: str) -> str:
+        label = SECTION_LABELS.get(section, section)
+        return self.llm.refine_draft(label, draft, feedback)
 
 
 class ReportGenerator:
     def __init__(self) -> None:
-        retrieval_agent = RetrievalAgent()
-        generator = SimpleGeneratorAgent(retrieval_agent)
-        self.generator = generator
+        self.retrieval_agent = RetrievalAgent()
+        self.generator = SimpleGeneratorAgent(self.retrieval_agent)
+        self.reviewer = ReviewerAgent()
 
     def generate_report(
         self,
@@ -168,12 +174,27 @@ class ReportGenerator:
         company_summary: str | None = None,
     ) -> Dict[str, str]:
         sections = {}
-        for section_key in ("uncertainty", "systematic_investigation", "technological_advancement"):
-            sections[section_key] = self.generator.generate_section(
-                section=section_key,
+        for key in ["uncertainty", "systematic_investigation", "technological_advancement"]:
+            # 1. Generate Draft
+            logger.info("Generating draft for %s...", key)
+            draft = self.generator.generate_section(
+                section=key,
                 industry=industry,
                 tech_code=tech_code,
                 project_description=project_description,
                 company_summary=company_summary,
             )
+
+            # 2. Review Draft
+            feedback = self.reviewer.review(key, draft)
+            
+            # 3. Refine (if rejected)
+            if "APPROVED" not in feedback:
+                logger.info("Refining %s based on feedback...", key)
+                final_version = self.generator.refine_section(key, draft, feedback)
+                sections[key] = final_version
+            else:
+                logger.info("%s accepted on first pass.", key)
+                sections[key] = draft
+                
         return sections
