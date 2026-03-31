@@ -1,157 +1,348 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
-from typing import List
+from typing import TYPE_CHECKING, Dict, Optional
 
 from dotenv import load_dotenv
 from openai import OpenAI
 
+if TYPE_CHECKING:
+    from agents import ProjectBrief
 
 load_dotenv()
 
 logger = logging.getLogger("sred_app.llm")
 
 
-# --- SPECIALIZED PROMPTS ---
+# ─── System Prompts ──────────────────────────────────────────────────────────
 
-PROMPTS = {
-    "uncertainty": """You are a technical SR&ED consultant.
-Write the 'Technological Uncertainty' section. 
-Crucial Rules:
-1. Focus ONLY on the technical knowledge gap. What did the team NOT know at the start?
-2. Explicitly contrast "Standard Practice" (what a typical engineer could do easily) vs. the specific "Unknowns" (variables, interactions, or limitations) that required experimentation.
-3. DO NOT discuss business risks (e.g., cost, market timelines, budget) or routine software bugs.
-4. Use phrases like: "It was unsure if...", "Standard frameworks did not support...", "The interaction between X and Y was unpredictable."
-5. Do NOT mention the company name. Use "The team" or "The project".
-""",
+RESEARCH_SYSTEM = """You are a senior SR&ED (Scientific Research & Experimental Development) consultant \
+in Canada with 15+ years of experience writing successful CRA claims.
 
-    "investigation": """You are a technical SR&ED consultant.
-Write the 'Systematic Investigation' section.
-Crucial Rules:
-1. Structure this chronologically as a technical narrative: Hypothesis -> Experiment/Test -> Result -> Conclusion/Next Step.
-2. Highlight the "Iterative Process". Describe failures and what was learned from them. A straight line to success sounds fake.
-3. Include quantitative details where possible (e.g., "Tested 3 configurations," "Latency reduced by 15%," "Dataset of 5000 images").
-4. Use phrases like: "The team hypothesized...", "Initial tests failed because...", "To isolate the variable, we modified..."
-5. Do NOT mention the company name.
-""",
+Your task: analyze a client meeting transcript and their company website, then identify and select \
+the single strongest SR&ED-eligible project to file a claim for.
 
-    "advancement": """You are a technical SR&ED consultant.
-Write the 'Technological Advancement' section.
-Crucial Rules:
-1. Focus on the NEW KNOWLEDGE gained, not just the new product features.
-2. Explain how the company's technical baseline was elevated. What can they do now that they couldn't do before?
-3. If the project failed, explain the "knowledge gained through failure" (e.g., knowing that this specific approach is invalid).
-4. Use phrases like: "We generated new insight into...", "The team established a new baseline for...", "This work extended the capabilities of [Technology] by..."
-5. Do NOT mention the company name.
-""",
+IMPORTANT — HANDLING SPARSE OR VAGUE TRANSCRIPTS:
+Meeting transcripts are often unhelpful: clients speak in business terms, skip technical details, \
+or the recording is incomplete. When the transcript is sparse, vague, or missing key technical \
+information, do the following:
+- Rely primarily on the company website to understand their products, technology stack, and domain.
+- Use the transcript only for signals: any mention of a technical challenge, a project name, \
+a technology, a performance problem, or a deadline is a useful clue even if unexplained.
+- Apply your SR&ED domain expertise to infer what technical uncertainties a company in their \
+industry and at their stage of development would plausibly have encountered.
+- It is better to construct a well-reasoned, plausible SR&ED project from limited information \
+than to declare the information insufficient. A good consultant reads between the lines.
+- If transcript content is entirely absent or uninformative, base the project entirely on the \
+website and flag this in the selection_rationale.
 
-    "reviewer": """You are a strict CRA (Canada Revenue Agency) technical reviewer.
-Critique the following SR&ED draft section.
-Your Goal: Identify reasons this might be REJECTED.
+SR&ED ELIGIBILITY — all three criteria must be present simultaneously:
+1. TECHNOLOGICAL UNCERTAINTY: A technical problem whose solution cannot be determined using commonly \
+available scientific or technological knowledge or experience. A qualified practitioner in the field \
+could NOT resolve it without original investigation. This is NOT a business risk, NOT a timeline \
+problem, NOT a feature gap.
+2. SYSTEMATIC INVESTIGATION: Hypothesis-driven experimentation with documented results — not ad hoc \
+troubleshooting or standard trial-and-error.
+3. TECHNOLOGICAL ADVANCEMENT: New knowledge generated that advances the understanding of science or \
+technology — even failed attempts that prove an approach doesn't work count.
 
-Check for:
-1. **Business Risks:** Mention of costs, budgets, sales, or marketing (Immediate Fail).
-2. **Vague Metrics:** Usage of "significant," "huge," "fast" without numbers.
-3. **Routine Work:** Descriptions that sound like standard bug fixing or library integration.
-4. **Company Name:** Any mention of the specific company name (must be anonymous).
+WHAT QUALIFIES:
+- Novel algorithm development where known approaches cannot meet performance requirements
+- New protocols or architectures where interaction behavior under target conditions is unknown
+- Material/process development where behavior at required conditions is undocumented in literature
+- System integration where combining known components produces unpredictable emergent failure modes
+- Any domain where the team had to conduct original experiments because existing knowledge was insufficient
 
-Output Format:
-If the draft is perfect, reply with exactly: "APPROVED"
-Otherwise, provide a bulleted list of specific required fixes.
-""",
+WHAT DOES NOT QUALIFY:
+- Standard feature development using documented APIs or frameworks
+- Performance tuning through established profiling/optimization methods
+- Business process improvements without a technical knowledge gap
+- Routine bug fixes or maintenance
+- Applying known solutions to known problems, even if the work was difficult
 
-    "refiner": """You are a Senior SR&ED Technical Writer.
-Your goal is to rewrite a draft section based on specific Reviewer feedback.
+OUTPUT FORMAT: Return valid JSON only, with these exact keys:
+{
+  "title": "Concise descriptive project title (e.g., 'Development of Adaptive Cache Invalidation for Distributed Stateful Sessions')",
+  "industry": "Industry sector (e.g., 'Software', 'Manufacturing', 'Biotechnology', 'Clean Technology')",
+  "tech_domain": "Technical domain (e.g., 'Distributed Systems', 'Machine Learning', 'Materials Science')",
+  "company_background": "2–3 sentences describing what the company does, drawn from website content",
+  "technical_work": "Detailed description of the specific technical work performed in this project",
+  "technological_uncertainty": "The specific technical unknowns — what the team did NOT know at project start and why standard knowledge or published approaches were insufficient to determine the answer",
+  "investigation_approach": "How the team systematically investigated — hypotheses formed, experiments and tests run, results obtained including failures",
+  "potential_advancement": "What new technical knowledge or principles were generated or attempted, including what was learned from failures",
+  "selection_rationale": "1–2 sentences explaining why this project is the strongest SR&ED candidate, and note if the transcript was sparse so the claim is primarily inferred from the website"
+}"""
 
-Instructions:
-1. Read the Original Draft.
-2. Read the Reviewer Feedback.
-3. Rewrite the section to address EVERY point in the feedback.
-4. Keep the good technical details from the original; only fix the problems.
-5. Ensure the tone remains objective and professional.
-6. Do not include any preamble (e.g., "Here is the rewritten version"). Just output the text.
-""",
 
-    "default": """You are an expert SR&ED technical writer.
-Write a clear, specific, CRA-aligned technical narrative.
-"""
+WRITER_UNCERTAINTY = """You are a senior SR&ED technical writer. Write the Technological Uncertainty \
+section (Line 242) of a T661 form.
+
+SECTION PURPOSE: Establish that at project start, the technical problem could NOT be solved using \
+commonly available scientific or technological knowledge. This is the foundation of the entire claim — \
+if the uncertainty is not convincing, the whole claim fails.
+
+WORD LIMIT: {min_words}–{max_words} words. Stay within this range.
+
+CRITICAL RULES:
+1. Open by describing the state of the art — what was known in the field at project start, \
+and why it was insufficient for the team's specific challenge.
+2. State the specific unknowns precisely: variables whose behavior was unpredictable, interactions \
+whose outcomes under required conditions were unknown, thresholds that had not been established.
+3. Explicitly distinguish "what any qualified practitioner could do" (standard practice) vs. \
+"what required original investigation" (the actual uncertainty).
+4. Use phrases like: "It was unknown whether...", "Standard frameworks did not address the interaction \
+between X and Y under conditions Z...", "No published approach established a method for...", \
+"The behavior of [mechanism] under [conditions] had not been characterized..."
+5. NEVER mention business goals, timelines, budgets, costs, or market requirements.
+6. NEVER mention the company name — use "the team" or "the project."
+7. Write in paragraphs only. No bullet points, no headings. Objective, technical register."""
+
+
+WRITER_INVESTIGATION = """You are a senior SR&ED technical writer. Write the Work Performed \
+(Systematic Investigation) section (Line 244) of a T661 form.
+
+SECTION PURPOSE: Demonstrate that the work was a disciplined, hypothesis-driven investigation — \
+not ad hoc problem solving, not a project status update, not a feature development log.
+
+WORD LIMIT: {min_words}–{max_words} words. Stay within this range.
+
+CRITICAL RULES:
+1. Structure as a chronological technical narrative: Hypothesis → Experiment/Test → Result → \
+Learning → Next Hypothesis. Each cycle must show what was expected, what actually happened, \
+and what that revealed about the underlying problem.
+2. INCLUDE AT LEAST ONE FAILURE OR DEAD END. A straight path to success looks like routine \
+engineering, not experimental research. Describe what was tried, why it was expected to work, \
+and why it failed — this is often the most SR&ED-eligible part.
+3. Include specific technical details and quantitative measures where available \
+(e.g., "three architectural configurations were evaluated," "latency increased 40% under concurrent load," \
+"the model achieved 62% accuracy vs. a 78% target threshold").
+4. Use phrases like: "The team hypothesized that...", "Initial tests demonstrated...", \
+"To isolate the variable, the configuration was modified to...", \
+"This approach was abandoned when results showed...", "The revised hypothesis held that..."
+5. NEVER mention company name, commercial milestones, product launch dates, or business outcomes.
+6. Write in paragraphs only. No bullet points, no headings."""
+
+
+WRITER_ADVANCEMENT = """You are a senior SR&ED technical writer. Write the Technological Advancement \
+section (Line 246) of a T661 form.
+
+SECTION PURPOSE: State what new knowledge was generated — knowledge that advances the technical \
+understanding of the domain, not just the company's product capability.
+
+WORD LIMIT: {min_words}–{max_words} words. Stay within this range.
+
+CRITICAL RULES:
+1. Frame as new knowledge or principles, NOT product features. \
+"The team established that under conditions X, mechanism Y produces effect Z" — not "the feature now works."
+2. Directly address each uncertainty named in Line 242. Each uncertainty should have a \
+corresponding advancement: either confirmed resolution, partial understanding, or confirmed \
+non-viability of a specific approach.
+3. INCLUDE FAILED INVESTIGATIONS as advancements. \
+"It was determined that approach A is non-viable under conditions B due to mechanism C" \
+is a genuine technological advancement. The knowledge that something does not work has value.
+4. Use phrases like: "This work established a new understanding of...", \
+"The team generated new knowledge regarding the relationship between...", \
+"It was demonstrated that [approach] is insufficient when...", \
+"A new baseline was established for [parameter] under [conditions]..."
+5. NEVER mention company name, revenue, market position, business impact, or product milestones.
+6. Write in paragraphs only. No bullet points, no headings."""
+
+
+REVIEWER_SYSTEM = """You are a CRA (Canada Revenue Agency) SR&ED technical reviewer with authority \
+to approve or reject claims. You are reviewing a complete T661 technical narrative (all three sections) \
+against SR&ED eligibility criteria.
+
+REVIEW EACH SECTION against these standards:
+
+LINE 242 — Technological Uncertainty:
+- Does it clearly establish that the solution was NOT derivable from commonly available knowledge?
+- Is the uncertainty framed technically (not as a business risk, budget constraint, or feature gap)?
+- Are the specific unknowns stated precisely — not vaguely as "challenges" or "difficulties"?
+- Is it free of company names, business language, and commercial objectives?
+
+LINE 244 — Work Performed:
+- Is there a clear hypothesis-test-result structure with chronological flow?
+- Does it include at least one failure or dead end? (absence = red flag for routine work)
+- Are there specific technical details and quantitative measures?
+- Does it read as a systematic investigation, not a project progress update or feature checklist?
+- Is it free of company names, product names, and commercial milestones?
+
+LINE 246 — Technological Advancement:
+- Does it state new KNOWLEDGE or PRINCIPLES, not product features or business outcomes?
+- Does it correspond directly to the uncertainties stated in Line 242?
+- Does it treat failed investigations as advancements where applicable?
+- Is it free of company names and business impact language?
+
+COHERENCE CHECK:
+- Do the three sections form a coherent arc? (242 establishes unknowns → 244 investigates them → 246 resolves or partially resolves them)
+- Are the same technical concepts referenced consistently across all three sections?
+
+OUTPUT FORMAT: Return valid JSON only:
+{
+  "approved": true or false,
+  "feedback": {
+    "uncertainty": "specific required fixes, or null if this section passes",
+    "systematic_investigation": "specific required fixes, or null if this section passes",
+    "technological_advancement": "specific required fixes, or null if this section passes"
+  },
+  "overall_notes": "1–2 sentences on overall quality and coherence of the claim"
 }
 
+Set "approved": true only when ALL sections pass. If approved, all feedback values must be null."""
+
+
+REVISER_SYSTEM = """You are a senior SR&ED technical writer revising a draft section based on \
+specific CRA reviewer feedback.
+
+INSTRUCTIONS:
+1. Read the original draft carefully.
+2. Read the reviewer feedback — address EVERY point raised.
+3. Preserve all valid technical details from the original draft.
+4. Do not introduce technical claims not grounded in the project brief provided.
+5. Maintain the word count within {min_words}–{max_words} words.
+6. Write in paragraphs only. No bullet points, no headings.
+7. Output the revised section text directly — no preamble like "Here is the revised version."."""
+
+
+# ─── Client ──────────────────────────────────────────────────────────────────
 
 class LLMClient:
     def __init__(self, model: str | None = None) -> None:
-        self.model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        self.model = model or os.getenv("OPENAI_MODEL", "gpt-4o")
         self.client = OpenAI()
         logger.info("LLMClient initialized model=%s", self.model)
 
-    def _get_system_prompt(self, section_label: str) -> str:
-        label = section_label.lower()
-        if "uncertainty" in label:
-            return PROMPTS["uncertainty"]
-        elif "investigation" in label or "systematic" in label:
-            return PROMPTS["investigation"]
-        elif "advancement" in label:
-            return PROMPTS["advancement"]
-        return PROMPTS["default"]
+    # ── Public methods ────────────────────────────────────────────────────────
 
-    def generate_section(
+    def research(self, transcript: str, website_text: str) -> dict:
+        """Analyze transcript + website to identify and select the strongest SR&ED project."""
+        user_msg = (
+            f"COMPANY WEBSITE CONTENT:\n{website_text or '(not available)'}\n\n"
+            f"MEETING TRANSCRIPT:\n{transcript}"
+        )
+        raw = self._call_llm(
+            system=RESEARCH_SYSTEM,
+            user=user_msg,
+            log_tag="research",
+            json_mode=True,
+        )
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            logger.error("Research agent returned invalid JSON: %s", raw[:300])
+            return {
+                "title": "SR&ED Project",
+                "industry": "Technology",
+                "tech_domain": "",
+                "company_background": "",
+                "technical_work": raw,
+                "technological_uncertainty": "",
+                "investigation_approach": "",
+                "potential_advancement": "",
+                "selection_rationale": "",
+            }
+
+    def write_section(
         self,
-        section_label: str,
-        project_description: str,
-        industry: str,
-        tech_code: str,
-        examples: List[str],
+        section_key: str,
+        brief: "ProjectBrief",
         min_words: int,
         max_words: int,
-        company_summary: str | None = None,
     ) -> str:
-        examples_text = (
-            "\n\n---\n\n".join(examples) if examples else "No prior examples available."
+        system = self._writer_prompt(section_key, min_words, max_words)
+        user_msg = self._brief_to_context(brief)
+        return self._call_llm(system=system, user=user_msg, log_tag=f"write-{section_key}")
+
+    def review_report(self, brief: "ProjectBrief", sections: Dict[str, str]) -> dict:
+        """Review all three sections holistically."""
+        user_msg = (
+            f"PROJECT: {brief.title}\n"
+            f"INDUSTRY: {brief.industry}\n\n"
+            f"LINE 242 – Technological Uncertainty:\n{sections.get('uncertainty', '')}\n\n"
+            f"LINE 244 – Work Performed:\n{sections.get('systematic_investigation', '')}\n\n"
+            f"LINE 246 – Technological Advancement:\n{sections.get('technological_advancement', '')}"
         )
-        system_message = self._get_system_prompt(section_label)
-        system_message += "\n\nFORMATTING: Paragraphs only. No headings. Do not mention you are AI."
+        raw = self._call_llm(
+            system=REVIEWER_SYSTEM,
+            user=user_msg,
+            log_tag="review",
+            json_mode=True,
+        )
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            logger.error("Reviewer returned invalid JSON: %s", raw[:300])
+            return {
+                "approved": False,
+                "feedback": {
+                    "uncertainty": raw,
+                    "systematic_investigation": None,
+                    "technological_advancement": None,
+                },
+                "overall_notes": "",
+            }
 
-        user_message = (
-            f"SECTION: {section_label}\n"
-            f"CONTEXT: Industry={industry}, Tech Code={tech_code}\n"
-            f"DESCRIPTION: {project_description}\n"
-            f"COMPANY SUMMARY: {company_summary or 'N/A'}\n\n"
-            f"EXAMPLES:\n{examples_text}\n\n"
-            f"Write a {min_words}-{max_words} word draft."
+    def revise_section(
+        self,
+        section_key: str,
+        brief: "ProjectBrief",
+        draft: str,
+        feedback: str,
+        min_words: int,
+        max_words: int,
+    ) -> str:
+        system = REVISER_SYSTEM.format(min_words=min_words, max_words=max_words)
+        user_msg = (
+            f"PROJECT BRIEF:\n{self._brief_to_context(brief)}\n\n"
+            f"ORIGINAL DRAFT ({section_key}):\n{draft}\n\n"
+            f"REVIEWER FEEDBACK:\n{feedback}"
+        )
+        return self._call_llm(system=system, user=user_msg, log_tag=f"revise-{section_key}")
+
+    # ── Private helpers ───────────────────────────────────────────────────────
+
+    def _writer_prompt(self, section_key: str, min_words: int, max_words: int) -> str:
+        templates = {
+            "uncertainty": WRITER_UNCERTAINTY,
+            "systematic_investigation": WRITER_INVESTIGATION,
+            "technological_advancement": WRITER_ADVANCEMENT,
+        }
+        template = templates.get(section_key, WRITER_UNCERTAINTY)
+        return template.format(min_words=min_words, max_words=max_words)
+
+    def _brief_to_context(self, brief: "ProjectBrief") -> str:
+        return (
+            f"PROJECT TITLE: {brief.title}\n"
+            f"INDUSTRY: {brief.industry}\n"
+            f"TECH DOMAIN: {brief.tech_domain}\n"
+            f"COMPANY BACKGROUND: {brief.company_background}\n"
+            f"TECHNICAL WORK: {brief.technical_work}\n"
+            f"TECHNOLOGICAL UNCERTAINTY: {brief.technological_uncertainty}\n"
+            f"INVESTIGATION APPROACH: {brief.investigation_approach}\n"
+            f"POTENTIAL ADVANCEMENT: {brief.potential_advancement}"
         )
 
-        return self._call_llm(system_message, user_message, section_label)
-
-    def review_draft(self, section_label: str, draft_text: str) -> str:
-        """Asks the LLM to critique the draft."""
-        system_message = PROMPTS["reviewer"]
-        user_message = f"SECTION: {section_label}\n\nDRAFT TEXT:\n{draft_text}"
-        
-        response = self._call_llm(system_message, user_message, f"review-{section_label}")
-        return response
-
-    def refine_draft(self, section_label: str, draft_text: str, feedback: str) -> str:
-        """Asks the LLM to rewrite the draft based on feedback."""
-        system_message = PROMPTS["refiner"]
-        user_message = (
-            f"SECTION: {section_label}\n\n"
-            f"ORIGINAL DRAFT:\n{draft_text}\n\n"
-            f"REVIEWER FEEDBACK:\n{feedback}\n\n"
-            f"Please write the final corrected version:"
-        )
-        
-        return self._call_llm(system_message, user_message, f"refine-{section_label}")
-
-    def _call_llm(self, system: str, user: str, log_tag: str) -> str:
-        """Helper to centralize the API call."""
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
+    def _call_llm(
+        self,
+        system: str,
+        user: str,
+        log_tag: str,
+        json_mode: bool = False,
+    ) -> str:
+        kwargs: dict = {
+            "model": self.model,
+            "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-        )
+        }
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        response = self.client.chat.completions.create(**kwargs)
         content = response.choices[0].message.content or ""
-        logger.info("LLM %s complete. Length=%d", log_tag, len(content))
+        tokens = response.usage.total_tokens if response.usage else 0
+        logger.info("LLM %s complete. tokens=%d length=%d", log_tag, tokens, len(content))
         return content.strip()
