@@ -16,10 +16,6 @@ RUN pip install --upgrade pip \
 # This ensures your code and the database are present.
 COPY . .
 
-# 3. Optional: Download the ML model during build time
-# This prevents the app from downloading 80MB+ on every startup (Cold Start).
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-mpnet-base-v2')"
-
-# 4. Corrected Command
+# 3. Run
 # Uses 'app:app' because your file is named 'app.py' and the FastAPI instance is 'app'
 CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}"]

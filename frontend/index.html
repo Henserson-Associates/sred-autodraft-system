@@ -6,279 +6,486 @@
     <title>SR&ED Report Generator</title>
     <style>
       :root {
-        color-scheme: light;
-        --bg: #f5f7fb;
+        --bg: #f0f4f8;
         --panel: #ffffff;
         --ink: #0f172a;
-        --muted: #475569;
+        --muted: #64748b;
         --accent: #2563eb;
+        --accent-hover: #1d4ed8;
         --border: #e2e8f0;
-        --shadow: 0 12px 35px rgba(15, 23, 42, 0.08);
+        --success: #16a34a;
+        --shadow: 0 4px 24px rgba(15, 23, 42, 0.07);
+        --radius: 12px;
       }
-      * {
-        box-sizing: border-box;
-      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
       body {
-        margin: 0;
         font-family: "Inter", system-ui, -apple-system, sans-serif;
-        background: radial-gradient(circle at 20% 20%, #e0e7ff, transparent 30%),
-          radial-gradient(circle at 80% 0%, #cffafe, transparent 30%),
-          var(--bg);
+        background: var(--bg);
         color: var(--ink);
+        min-height: 100vh;
       }
       header {
-        padding: 24px;
-        text-align: center;
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+        padding: 18px 32px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
       }
-      header h1 {
-        margin: 0;
-        font-size: 28px;
-        letter-spacing: -0.02em;
-      }
-      header p {
-        margin: 8px 0 0;
-        color: var(--muted);
+      header h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+      header span { color: var(--muted); font-size: 14px; }
+      .badge {
+        background: #eff6ff;
+        color: var(--accent);
+        border: 1px solid #bfdbfe;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 8px;
+        letter-spacing: 0.04em;
       }
       main {
-        max-width: 1200px;
+        max-width: 1280px;
         margin: 0 auto;
-        padding: 0 20px 40px;
-      }
-      .grid {
+        padding: 28px 24px 48px;
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-        gap: 20px;
+        grid-template-columns: 400px 1fr;
+        gap: 24px;
+        align-items: start;
+      }
+      @media (max-width: 860px) {
+        main { grid-template-columns: 1fr; }
       }
       .panel {
         background: var(--panel);
         border: 1px solid var(--border);
-        border-radius: 14px;
-        padding: 20px;
+        border-radius: var(--radius);
+        padding: 24px;
         box-shadow: var(--shadow);
+      }
+      .panel-title {
+        font-size: 13px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin-bottom: 18px;
       }
       label {
         display: block;
+        font-size: 13px;
         font-weight: 600;
+        color: var(--ink);
         margin-bottom: 6px;
+        margin-top: 16px;
       }
-      input,
-      textarea {
+      label:first-of-type { margin-top: 0; }
+      input[type="url"], textarea {
         width: 100%;
         padding: 10px 12px;
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: 8px;
         font-size: 14px;
-        background: #fbfdff;
+        font-family: inherit;
+        background: #fafbfc;
+        color: var(--ink);
+        transition: border-color 0.15s;
+        outline: none;
       }
-      textarea {
-        min-height: 160px;
-        resize: vertical;
+      input[type="url"]:focus, textarea:focus { border-color: var(--accent); }
+      textarea { min-height: 200px; resize: vertical; line-height: 1.6; }
+      .upload-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 8px;
       }
-      button {
-        margin-top: 12px;
+      .upload-btn {
+        flex-shrink: 0;
+        padding: 7px 14px;
+        border: 1px dashed var(--accent);
+        border-radius: 8px;
+        background: #eff6ff;
+        color: var(--accent);
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.12s;
+        white-space: nowrap;
+      }
+      .upload-btn:hover { background: #dbeafe; }
+      .file-name {
+        font-size: 12px;
+        color: var(--muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .file-name.loaded { color: var(--success); font-weight: 600; }
+      .btn {
+        margin-top: 20px;
         width: 100%;
         padding: 12px;
         border: none;
-        border-radius: 10px;
+        border-radius: 8px;
         background: var(--accent);
         color: white;
         font-weight: 700;
         font-size: 15px;
         cursor: pointer;
-        transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
-        box-shadow: 0 10px 20px rgba(37, 99, 235, 0.25);
+        transition: background 0.15s, transform 0.1s;
       }
-      button:hover {
-        transform: translateY(-1px);
+      .btn:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
+      .btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+      .error-msg {
+        margin-top: 12px;
+        padding: 10px 12px;
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        border-radius: 8px;
+        color: #b91c1c;
+        font-size: 13px;
       }
-      button:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-        transform: none;
-        box-shadow: none;
-      }
-      .status {
-        margin-top: 10px;
+      /* Right panel */
+      .results-empty {
         color: var(--muted);
         font-size: 14px;
-      }
-      .sections h3 {
-        margin: 0 0 6px;
-        font-size: 16px;
-      }
-      .sections article {
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 12px 14px;
-        margin-bottom: 12px;
-        background: #f8fafc;
-      }
-      .empty {
-        color: var(--muted);
         text-align: center;
+        padding: 60px 20px;
+      }
+      .results-empty svg { display: block; margin: 0 auto 12px; opacity: 0.3; }
+      /* Loading */
+      .loading-wrap {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--muted);
+      }
+      .spinner {
+        width: 40px; height: 40px;
+        border: 3px solid var(--border);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        margin: 0 auto 16px;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .loading-steps { font-size: 13px; }
+      .loading-steps .step { padding: 4px 0; }
+      .loading-steps .step.active { color: var(--accent); font-weight: 600; }
+      .loading-steps .step.done { color: var(--success); }
+      /* Project card */
+      .project-card {
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        border-radius: var(--radius);
+        padding: 16px 20px;
+        margin-bottom: 20px;
+      }
+      .project-card .project-title {
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--accent);
+        margin-bottom: 6px;
+      }
+      .project-card .project-summary { font-size: 13px; color: var(--muted); line-height: 1.5; }
+      /* Section cards */
+      .section-card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+        margin-bottom: 16px;
+      }
+      .section-card:last-child { margin-bottom: 0; }
+      .section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        background: #f8fafc;
+        border-bottom: 1px solid var(--border);
+      }
+      .section-header-left { display: flex; align-items: center; gap: 10px; }
+      .section-line {
+        font-size: 11px;
+        font-weight: 700;
+        background: var(--ink);
+        color: white;
+        border-radius: 4px;
+        padding: 2px 7px;
+        letter-spacing: 0.04em;
+      }
+      .section-name { font-size: 14px; font-weight: 600; }
+      .word-count { font-size: 12px; color: var(--muted); }
+      .copy-btn {
+        padding: 6px 14px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: white;
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s, border-color 0.12s;
+        white-space: nowrap;
+      }
+      .copy-btn:hover { background: var(--accent); color: white; border-color: var(--accent); }
+      .copy-btn.copied { background: var(--success); color: white; border-color: var(--success); }
+      .section-body {
+        padding: 16px 18px;
+        font-size: 14px;
+        line-height: 1.75;
+        color: var(--ink);
+        white-space: pre-wrap;
       }
     </style>
   </head>
   <body>
     <header>
       <h1>SR&ED Report Generator</h1>
-      <p>Send project inputs to the API and preview drafted sections.</p>
+      <span class="badge">Multi-Agent</span>
+      <span style="margin-left:4px; color:var(--muted); font-size:14px;">— powered by GPT-4o</span>
     </header>
     <main>
       <div id="root"></div>
     </main>
 
     <script type="module">
-      import React, { useState } from "https://esm.sh/react@18.3.1";
+      import React, { useState, useEffect, useRef } from "https://esm.sh/react@18.3.1";
       import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
 
-      const Results = ({ sections }) => {
-        const entries = Object.entries(sections || {});
-        if (!entries.length) {
-          return React.createElement("div", { className: "empty" }, "Results will appear here after calling the API.");
-        }
+      const SECTION_META = {
+        uncertainty: { line: "242", name: "Technological Uncertainty" },
+        systematic_investigation: { line: "244", name: "Work Performed" },
+        technological_advancement: { line: "246", name: "Technological Advancement" },
+      };
+
+      const LOADING_STEPS = [
+        { key: "research",  label: "Research Agent — analyzing transcript & website..." },
+        { key: "write",     label: "Writer Agent — drafting three sections..." },
+        { key: "review",    label: "Reviewer Agent — checking CRA compliance..." },
+      ];
+
+      function countWords(text) {
+        return text ? text.trim().split(/\s+/).filter(Boolean).length : 0;
+      }
+
+      function CopyButton({ text }) {
+        const [copied, setCopied] = useState(false);
+        const handle = () => {
+          navigator.clipboard.writeText(text).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          });
+        };
         return React.createElement(
-          "div",
-          { className: "sections" },
-          entries.map(([key, value]) =>
+          "button",
+          { className: `copy-btn${copied ? " copied" : ""}`, onClick: handle },
+          copied ? "Copied!" : "Copy"
+        );
+      }
+
+      function SectionCard({ sectionKey, text }) {
+        const meta = SECTION_META[sectionKey] || { line: "?", name: sectionKey };
+        const words = countWords(text);
+        return React.createElement(
+          "div", { className: "section-card" },
+          React.createElement(
+            "div", { className: "section-header" },
             React.createElement(
-              "article",
-              { key },
-              React.createElement("h3", null, key.replace(/_/g, " ")),
-              React.createElement("p", {
-                style: { margin: 0, lineHeight: 1.6, whiteSpace: "pre-line" },
-              }, value)
+              "div", { className: "section-header-left" },
+              React.createElement("span", { className: "section-line" }, `Line ${meta.line}`),
+              React.createElement("span", { className: "section-name" }, meta.name),
+              React.createElement("span", { className: "word-count" }, `${words} words`)
+            ),
+            React.createElement(CopyButton, { text })
+          ),
+          React.createElement("div", { className: "section-body" }, text)
+        );
+      }
+
+      function Results({ data }) {
+        return React.createElement(
+          "div", null,
+          React.createElement(
+            "div", { className: "project-card" },
+            React.createElement("div", { className: "project-title" }, data.project_title),
+            data.project_summary && React.createElement(
+              "div", { className: "project-summary" }, data.project_summary
+            )
+          ),
+          Object.entries(data.sections).map(([key, text]) =>
+            React.createElement(SectionCard, { key, sectionKey: key, text })
+          )
+        );
+      }
+
+      function LoadingPanel() {
+        const [stepIdx, setStepIdx] = useState(0);
+        useEffect(() => {
+          const id = setInterval(() => {
+            setStepIdx(i => Math.min(i + 1, LOADING_STEPS.length - 1));
+          }, 15000);
+          return () => clearInterval(id);
+        }, []);
+        return React.createElement(
+          "div", { className: "loading-wrap" },
+          React.createElement("div", { className: "spinner" }),
+          React.createElement("div", { style: { fontWeight: 600, marginBottom: 14 } }, "Generating report..."),
+          React.createElement(
+            "div", { className: "loading-steps" },
+            LOADING_STEPS.map((s, i) =>
+              React.createElement(
+                "div", {
+                  key: s.key,
+                  className: `step${i === stepIdx ? " active" : i < stepIdx ? " done" : ""}`
+                },
+                i < stepIdx ? `✓ ${s.label}` : i === stepIdx ? `⟳ ${s.label}` : `○ ${s.label}`
+              )
             )
           )
         );
-      };
+      }
 
-      const App = () => {
-        const [industry, setIndustry] = useState("");
-        const [techCode, setTechCode] = useState("");
-        const [description, setDescription] = useState("");
-        const [companySummary, setCompanySummary] = useState("");
-        const [sections, setSections] = useState({});
+      function App() {
+        const [url, setUrl] = useState("");
+        const [transcript, setTranscript] = useState("");
+        const [fileName, setFileName] = useState("");
+        const [result, setResult] = useState(null);
         const [loading, setLoading] = useState(false);
         const [error, setError] = useState("");
+        const fileInputRef = useRef(null);
+
+        const handleFileUpload = (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          if (!file.name.endsWith(".txt")) {
+            setError("Please upload a .txt file.");
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            setTranscript(ev.target.result);
+            setFileName(file.name);
+            setError("");
+          };
+          reader.onerror = () => setError("Failed to read file.");
+          reader.readAsText(file, "UTF-8");
+          // reset so re-uploading same file triggers onChange
+          e.target.value = "";
+        };
 
         const submit = async (e) => {
           e.preventDefault();
-        setError("");
-        setSections({});
+          setError("");
+          setResult(null);
+          if (!transcript.trim()) { setError("Transcript is required — paste text or upload a .txt file."); return; }
+          if (!url.trim()) { setError("Website URL is required."); return; }
 
-        if (!industry.trim()) {
-          setError("Industry is required.");
-          return;
-        }
-
-        setLoading(true);
-        try {
-          const payload = {
-            industry,
-            tech_code: techCode,
-            project_description: description,
-            company_summary: companySummary,
-          };
-          console.log("[UI] Submitting payload", {
-            ...payload,
-            project_description_len: description.length,
-            company_summary_len: companySummary.length,
-          });
-
-          const res = await fetch("/api/generate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
-
-          console.log("[UI] Response received", res.status, res.statusText);
-
-          if (!res.ok) {
-            const detail = await res.json().catch(() => ({}));
-            console.warn("[UI] Non-200 response body", detail);
-            throw new Error(detail?.detail || "Failed to generate report.");
+          setLoading(true);
+          try {
+            const res = await fetch("/api/generate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ transcript, website_url: url }),
+            });
+            if (!res.ok) {
+              const detail = await res.json().catch(() => ({}));
+              throw new Error(detail?.detail || `Server error ${res.status}`);
+            }
+            const data = await res.json();
+            setResult(data);
+          } catch (err) {
+            setError(err.message);
+          } finally {
+            setLoading(false);
           }
+        };
 
-          const data = await res.json();
-          console.log("[UI] Sections returned", {
-            keys: Object.keys(data.sections || {}),
-            lengths: Object.fromEntries(
-              Object.entries(data.sections || {}).map(([k, v]) => [k, (v || "").length])
-            ),
-          });
-          setSections(data.sections || {});
-        } catch (err) {
-          console.error("[UI] Generate error", err);
-          setError(err.message);
-        } finally {
-          setLoading(false);
-        }
-      };
-
-        return React.createElement(
-          "div",
-          { className: "grid" },
+        const inputPanel = React.createElement(
+          "div", { className: "panel" },
+          React.createElement("div", { className: "panel-title" }, "Inputs"),
           React.createElement(
-            "section",
-            { className: "panel" },
+            "form", { onSubmit: submit },
+            React.createElement("label", { htmlFor: "url" }, "Company Website URL"),
+            React.createElement("input", {
+              id: "url",
+              type: "url",
+              placeholder: "https://example.com",
+              value: url,
+              onChange: e => setUrl(e.target.value),
+              autoComplete: "off",
+            }),
             React.createElement(
-              "form",
-              { onSubmit: submit },
-              React.createElement("label", { htmlFor: "industry" }, "Industry"),
-              React.createElement("input", {
-                id: "industry",
-                placeholder: "e.g., pharmacy",
-                value: industry,
-                onChange: (e) => setIndustry(e.target.value),
-                autoComplete: "off",
-              }),
-              React.createElement("label", { htmlFor: "tech" }, "Tech Code"),
-              React.createElement("input", {
-                id: "tech",
-                placeholder: "e.g., 01.01",
-                value: techCode,
-                onChange: (e) => setTechCode(e.target.value),
-                autoComplete: "off",
-              }),
-              React.createElement("label", { htmlFor: "company" }, "Company Summary (optional)"),
-              React.createElement("textarea", {
-                id: "company",
-                placeholder: "Short summary about the company...",
-                value: companySummary,
-                onChange: (e) => setCompanySummary(e.target.value),
-              }),
-              React.createElement("label", { htmlFor: "desc" }, "Project Description"),
-              React.createElement("textarea", {
-                id: "desc",
-                placeholder: "Briefly describe the SR&ED project...",
-                value: description,
-                onChange: (e) => setDescription(e.target.value),
-              }),
+              "label", { htmlFor: "transcript" },
+              "Meeting Transcript"
+            ),
+            // Upload row
+            React.createElement(
+              "div", { className: "upload-row" },
               React.createElement(
-                "button",
-                { type: "submit", disabled: loading },
-                loading ? "Generating..." : "Generate Draft"
+                "button", {
+                  type: "button",
+                  className: "upload-btn",
+                  onClick: () => fileInputRef.current && fileInputRef.current.click(),
+                },
+                "Upload .txt"
               ),
               React.createElement(
-                "div",
-                { className: "status" },
-                loading ? "Calling /api/generate..." : "Enter details and submit to call the FastAPI endpoint."
+                "span", { className: `file-name${fileName ? " loaded" : ""}` },
+                fileName ? `✓ ${fileName}` : "or paste text below"
               ),
-              error && React.createElement("div", { style: { color: "#b91c1c", marginTop: 8 } }, error)
-            )
-          ),
-          React.createElement(
-            "section",
-            { className: "panel" },
-            React.createElement("h3", { style: { marginTop: 0 } }, "Results"),
-            React.createElement(Results, { sections })
+              React.createElement("input", {
+                ref: fileInputRef,
+                type: "file",
+                accept: ".txt",
+                style: { display: "none" },
+                onChange: handleFileUpload,
+              })
+            ),
+            React.createElement("textarea", {
+              id: "transcript",
+              placeholder: "Paste the full meeting transcript here...",
+              value: transcript,
+              onChange: e => { setTranscript(e.target.value); if (fileName) setFileName(""); },
+            }),
+            React.createElement(
+              "button", { className: "btn", type: "submit", disabled: loading },
+              loading ? "Generating..." : "Generate SR&ED Report"
+            ),
+            error && React.createElement("div", { className: "error-msg" }, error)
           )
         );
-      };
 
-      const root = createRoot(document.getElementById("root"));
-      root.render(React.createElement(App));
+        let rightContent;
+        if (loading) {
+          rightContent = React.createElement("div", { className: "panel" }, React.createElement(LoadingPanel));
+        } else if (result) {
+          rightContent = React.createElement("div", { className: "panel" },
+            React.createElement("div", { className: "panel-title" }, "Generated Report"),
+            React.createElement(Results, { data: result })
+          );
+        } else {
+          rightContent = React.createElement(
+            "div", { className: "panel results-empty" },
+            React.createElement(
+              "svg", { width: 48, height: 48, fill: "none", viewBox: "0 0 24 24", stroke: "currentColor" },
+              React.createElement("path", {
+                strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 1.5,
+                d: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              })
+            ),
+            "Enter a website URL and meeting transcript, then click Generate."
+          );
+        }
+
+        return React.createElement(
+          React.Fragment, null,
+          inputPanel,
+          rightContent
+        );
+      }
+
+      createRoot(document.getElementById("root")).render(React.createElement(App));
     </script>
   </body>
 </html>

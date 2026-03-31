@@ -1,30 +1,19 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict, List
+from typing import Dict, Optional, Tuple
 
-import chromadb
-from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
+import requests
+from bs4 import BeautifulSoup
 
 from llm_client import LLMClient
 
 
-BASE_DIR = Path(__file__).resolve().parent
-CHROMA_DIR = BASE_DIR / "chroma_db"
+logger = logging.getLogger("sred_app.agents")
 
-COLLECTION_NAME = "sred_reports"
-# UPGRADE: Must match the model used in scripts/ingest.py
-EMBEDDING_MODEL_NAME = "all-mpnet-base-v2"
-
-
-SECTION_LABELS = {
-    "uncertainty": "Technological Uncertainty",
-    "systematic_investigation": "Systematic Investigation",
-    "technological_advancement": "Technological Advancement",
-}
+MAX_REVISIONS = 3
 
 WORD_LIMITS = {
     "uncertainty": (300, 350),
@@ -32,169 +21,192 @@ WORD_LIMITS = {
     "technological_advancement": (300, 350),
 }
 
-logger = logging.getLogger("sred_app.agents")
 
+# ─── Data model ──────────────────────────────────────────────────────────────
 
 @dataclass
-class RetrievedExample:
-    text: str
-    metadata: Dict[str, str]
+class ProjectBrief:
+    title: str
+    industry: str
+    tech_domain: str
+    company_background: str
+    technical_work: str
+    technological_uncertainty: str
+    investigation_approach: str
+    potential_advancement: str
+    selection_rationale: str
 
 
-class RetrievalAgent:
+# ─── Website fetcher ─────────────────────────────────────────────────────────
+
+def _fetch_website_text(url: str, timeout: int = 10, max_chars: int = 5000) -> str:
+    """Fetch and extract readable text content from a URL."""
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; SR-ED-Agent/2.0)"}
+        resp = requests.get(url, timeout=timeout, headers=headers)
+        resp.raise_for_status()
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # Remove non-content elements
+        for tag in soup(["script", "style", "nav", "footer", "header", "aside", "form", "noscript"]):
+            tag.decompose()
+
+        # Prefer main content areas if present
+        main = soup.find("main") or soup.find("article") or soup.find(id="content") or soup.body
+        text = (main or soup).get_text(separator=" ", strip=True)
+
+        # Collapse whitespace
+        text = re.sub(r"\s+", " ", text)
+        return text[:max_chars]
+
+    except Exception as exc:
+        logger.warning("Failed to fetch website %s: %s", url, exc)
+        return ""
+
+
+# ─── Agents ──────────────────────────────────────────────────────────────────
+
+class ResearchAgent:
+    """
+    Analyzes the meeting transcript and company website to identify
+    and select the single strongest SR&ED-eligible project.
+    """
+
     def __init__(self) -> None:
-        # This will download the new model automatically on first run
-        self.embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
-        self.client = chromadb.PersistentClient(
-            path=str(CHROMA_DIR),
-            settings=Settings(allow_reset=False),
+        self.llm = LLMClient(model="gpt-4o")
+
+    def analyze(self, transcript: str, website_url: str) -> ProjectBrief:
+        logger.info("ResearchAgent: fetching website %s", website_url)
+        website_text = _fetch_website_text(website_url)
+        if not website_text:
+            logger.warning("ResearchAgent: no website content retrieved; using transcript only")
+
+        logger.info("ResearchAgent: calling LLM (transcript_len=%d website_len=%d)",
+                    len(transcript), len(website_text))
+        raw = self.llm.research(transcript=transcript, website_text=website_text)
+
+        return ProjectBrief(
+            title=raw.get("title", "SR&ED Project"),
+            industry=raw.get("industry", "Technology"),
+            tech_domain=raw.get("tech_domain", ""),
+            company_background=raw.get("company_background", ""),
+            technical_work=raw.get("technical_work", ""),
+            technological_uncertainty=raw.get("technological_uncertainty", ""),
+            investigation_approach=raw.get("investigation_approach", ""),
+            potential_advancement=raw.get("potential_advancement", ""),
+            selection_rationale=raw.get("selection_rationale", ""),
         )
-        self.collection = self.client.get_collection(COLLECTION_NAME)
 
-    def retrieve(
-        self,
-        query: str,
-        section: str,
-        tech_code: str | None = None,
-        industry: str | None = None,
-        n_results: int = 5,
-    ) -> List[RetrievedExample]:
-        # (This uses the robust fallback logic from Step 2)
-        query_embedding = self.embedding_model.encode([query])
 
-        def _execute_query(conditions: List[Dict]) -> Dict:
-            if len(conditions) == 1:
-                where_clause = conditions[0]
-            else:
-                where_clause = {"$and": conditions}
-            return self.collection.query(
-                query_embeddings=query_embedding,
-                n_results=n_results,
-                where=where_clause,
+class WriterAgent:
+    """
+    Generates the three SR&ED report sections (Lines 242, 244, 246)
+    from a ProjectBrief.
+    """
+
+    def __init__(self) -> None:
+        self.llm = LLMClient(model="gpt-4o")
+
+    def write_all(self, brief: ProjectBrief) -> Dict[str, str]:
+        sections: Dict[str, str] = {}
+        for key in ["uncertainty", "systematic_investigation", "technological_advancement"]:
+            min_w, max_w = WORD_LIMITS[key]
+            logger.info("WriterAgent: writing section '%s'", key)
+            sections[key] = self.llm.write_section(
+                section_key=key,
+                brief=brief,
+                min_words=min_w,
+                max_words=max_w,
             )
+        return sections
 
-        strict_conditions = [{"status": "approved"}, {"section": section}]
-        if industry: strict_conditions.append({"industry": industry})
-        if tech_code: strict_conditions.append({"tech_code": tech_code})
-
-        results = _execute_query(strict_conditions)
-        found_docs = results.get("documents", [[]])[0]
-        found_metas = results.get("metadatas", [[]])[0]
-
-        # Fallback Logic
-        if len(found_docs) < n_results and tech_code:
-            logger.info("Retrying with relaxed filters (ignoring tech_code)...")
-            relaxed_conditions = [{"status": "approved"}, {"section": section}]
-            if industry: relaxed_conditions.append({"industry": industry})
-            
-            relaxed = _execute_query(relaxed_conditions)
-            found_docs.extend(relaxed.get("documents", [[]])[0])
-            found_metas.extend(relaxed.get("metadatas", [[]])[0])
-        
-        examples: List[RetrievedExample] = []
-        seen = set()
-        for doc, meta in zip(found_docs, found_metas):
-            if doc not in seen:
-                seen.add(doc)
-                examples.append(RetrievedExample(text=doc, metadata=meta or {}))
-        
-        return examples[:n_results]
+    def revise_section(
+        self,
+        key: str,
+        brief: ProjectBrief,
+        draft: str,
+        feedback: str,
+    ) -> str:
+        min_w, max_w = WORD_LIMITS[key]
+        logger.info("WriterAgent: revising section '%s'", key)
+        return self.llm.revise_section(
+            section_key=key,
+            brief=brief,
+            draft=draft,
+            feedback=feedback,
+            min_words=min_w,
+            max_words=max_w,
+        )
 
 
 class ReviewerAgent:
-    """New Agent responsible for Critiquing Drafts."""
-    def __init__(self):
-        # OPTIMIZATION: Use GPT-4o for the 'Reviewer' to ensure strict, high-quality critique.
-        # This agent needs to be smarter than the generator to catch subtle mistakes.
+    """
+    Reviews all three SR&ED sections holistically against CRA criteria.
+    Returns (approved, per_section_feedback).
+    """
+
+    def __init__(self) -> None:
         self.llm = LLMClient(model="gpt-4o")
 
-    def review(self, section: str, draft: str) -> str:
-        return self.llm.review_draft(section, draft)
-
-
-class SimpleGeneratorAgent:
-    def __init__(self, retrieval_agent: RetrievalAgent) -> None:
-        self.retrieval_agent = retrieval_agent
-        # OPTIMIZATION: Use GPT-4o-mini for the 'Generator' for speed and cost-efficiency.
-        self.llm = LLMClient(model="gpt-4o-mini")
-
-    def generate_section(
+    def review(
         self,
-        section: str,
-        industry: str,
-        tech_code: str | None,
-        project_description: str | None,
-        company_summary: str | None = None,
-    ) -> str:
-        label = SECTION_LABELS.get(section, section)
-        min_words, max_words = WORD_LIMITS.get(section, (300, 350))
-        
-        query = f"Industry: {industry}\nTech: {tech_code}\nDesc: {project_description}"
-        
-        examples = self.retrieval_agent.retrieve(
-            query=query,
-            section=section,
-            tech_code=tech_code,
-            industry=industry,
-            n_results=3,
-        )
-
-        example_texts = []
-        for ex in examples:
-            title = ex.metadata.get("project_title", "Example")
-            example_texts.append(f"Project: {title}\n\n{ex.text}")
-
-        return self.llm.generate_section(
-            section_label=label,
-            project_description=project_description or "",
-            industry=industry,
-            tech_code=tech_code or "",
-            examples=example_texts,
-            min_words=min_words,
-            max_words=max_words,
-            company_summary=company_summary,
-        )
-
-    def refine_section(self, section: str, draft: str, feedback: str) -> str:
-        label = SECTION_LABELS.get(section, section)
-        return self.llm.refine_draft(label, draft, feedback)
+        brief: ProjectBrief,
+        sections: Dict[str, str],
+    ) -> Tuple[bool, Dict[str, Optional[str]]]:
+        logger.info("ReviewerAgent: reviewing report for '%s'", brief.title)
+        result = self.llm.review_report(brief=brief, sections=sections)
+        approved: bool = result.get("approved", False)
+        feedback: Dict[str, Optional[str]] = result.get("feedback", {})
+        overall = result.get("overall_notes", "")
+        logger.info("ReviewerAgent: approved=%s overall='%s'", approved, overall)
+        return approved, feedback
 
 
-class ReportGenerator:
+# ─── Orchestrator ─────────────────────────────────────────────────────────────
+
+class ReportOrchestrator:
+    """
+    Orchestrates the full pipeline:
+      ResearchAgent → WriterAgent → ReviewerAgent loop (max MAX_REVISIONS)
+    """
+
     def __init__(self) -> None:
-        self.retrieval_agent = RetrievalAgent()
-        self.generator = SimpleGeneratorAgent(self.retrieval_agent)
+        self.researcher = ResearchAgent()
+        self.writer = WriterAgent()
         self.reviewer = ReviewerAgent()
 
-    def generate_report(
-        self,
-        industry: str,
-        tech_code: str | None,
-        project_description: str | None,
-        company_summary: str | None = None,
-    ) -> Dict[str, str]:
-        sections = {}
-        for key in ["uncertainty", "systematic_investigation", "technological_advancement"]:
-            # 1. Generate Draft
-            logger.info("Generating draft for %s...", key)
-            draft = self.generator.generate_section(
-                section=key,
-                industry=industry,
-                tech_code=tech_code,
-                project_description=project_description,
-                company_summary=company_summary,
-            )
+    def run(self, transcript: str, website_url: str) -> Dict:
+        # Step 1 — Research
+        logger.info("Orchestrator: Step 1 — Research")
+        brief = self.researcher.analyze(transcript, website_url)
+        logger.info("Orchestrator: selected project '%s'", brief.title)
 
-            # 2. Review Draft
-            feedback = self.reviewer.review(key, draft)
-            
-            # 3. Refine (if rejected)
-            if "APPROVED" not in feedback:
-                logger.info("Refining %s based on feedback...", key)
-                final_version = self.generator.refine_section(key, draft, feedback)
-                sections[key] = final_version
-            else:
-                logger.info("%s accepted on first pass.", key)
-                sections[key] = draft
-                
-        return sections
+        # Step 2 — Initial draft
+        logger.info("Orchestrator: Step 2 — Initial write")
+        sections = self.writer.write_all(brief)
+
+        # Step 3 — Review / revise loop
+        for attempt in range(1, MAX_REVISIONS + 1):
+            logger.info("Orchestrator: Step 3 — Review attempt %d/%d", attempt, MAX_REVISIONS)
+            approved, feedback = self.reviewer.review(brief, sections)
+
+            if approved:
+                logger.info("Orchestrator: report approved on attempt %d", attempt)
+                break
+
+            # Revise only the sections that have feedback
+            needs_revision = {k: v for k, v in feedback.items() if v}
+            logger.info("Orchestrator: revising sections %s", list(needs_revision.keys()))
+            for key, note in needs_revision.items():
+                if key in sections:
+                    sections[key] = self.writer.revise_section(key, brief, sections[key], note)
+
+            if attempt == MAX_REVISIONS:
+                logger.warning("Orchestrator: max revisions reached; returning best available draft")
+
+        return {
+            "project_title": brief.title,
+            "project_summary": brief.selection_rationale,
+            "sections": sections,
+        }
