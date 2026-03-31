@@ -499,9 +499,20 @@
   <body>
     <div id="app"></div>
 
+    <!-- PDF.js for client-side PDF text extraction -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- mammoth.js for client-side DOCX text extraction -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+
     <script type="module">
       import React, { useState, useEffect, useRef, useCallback } from "https://esm.sh/react@18.3.1";
       import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
+
+      // Configure PDF.js worker (must match the library version above)
+      if (window.pdfjsLib) {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+          "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      }
 
       // ── Constants ──────────────────────────────────────────────────────────
       const SECTION_META = {
@@ -516,7 +527,7 @@
         { key: "review",   icon: "⚖️",  label: "Reviewer Agent — checking CRA compliance..." },
       ];
 
-      const ACCEPTED_DOC_TYPES = ".txt,.md,.csv";
+      const ACCEPTED_DOC_TYPES = ".txt,.md,.csv,.pdf,.docx";
 
       // ── Helpers ────────────────────────────────────────────────────────────
       function countWords(t) {
@@ -527,7 +538,28 @@
         if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
         return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
       }
-      function readFileAsText(file) {
+      async function readPdfAsText(file) {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const pages = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page    = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          pages.push(content.items.filter(x => x.str).map(x => x.str).join(" "));
+        }
+        return pages.join("\n\n");
+      }
+
+      async function readDocxAsText(file) {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await window.mammoth.extractRawText({ arrayBuffer });
+        return result.value;
+      }
+
+      async function readFileAsText(file) {
+        const ext = file.name.split(".").pop().toLowerCase();
+        if (ext === "pdf")  return readPdfAsText(file);
+        if (ext === "docx") return readDocxAsText(file);
         return new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload  = e => resolve(e.target.result);
@@ -640,7 +672,7 @@
           e.preventDefault();
           setDrag(false);
           const files = [...e.dataTransfer.files].filter(f =>
-            /\.(txt|md|csv)$/i.test(f.name)
+            /\.(txt|md|csv|pdf|docx)$/i.test(f.name)
           );
           processFiles(files);
         }, [processFiles]);
@@ -656,7 +688,7 @@
           React.createElement("div", { className: "section-label" }, "Supporting Documents"),
           React.createElement(
             "div", { className: "field-hint", style: { marginTop: 0 } },
-            "Optional — upload any supplementary files for the Research Agent (.txt, .md, .csv)"
+            "Optional — upload any supplementary files for the Research Agent (.txt, .md, .csv, .pdf, .docx)"
           ),
           React.createElement(
             "div", {
