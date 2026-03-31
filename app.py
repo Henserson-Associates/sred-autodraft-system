@@ -30,9 +30,17 @@ app = FastAPI(
 orchestrator = ReportOrchestrator()
 
 
+class SupplementaryDoc(BaseModel):
+    name: str = Field(..., description="File name.")
+    content: str = Field(..., description="Plain-text file content.")
+
+
 class ReportRequest(BaseModel):
     transcript: str = Field(..., description="Full meeting transcript with the client.")
     website_url: str = Field(..., description="Client company website URL.")
+    supplementary_docs: list[SupplementaryDoc] | None = Field(
+        None, description="Optional supporting documents."
+    )
 
 
 class ReportResponse(BaseModel):
@@ -59,9 +67,15 @@ def generate_report(request: ReportRequest) -> ReportResponse:
         request.website_url,
     )
 
+    supp_docs = (
+        [{"name": d.name, "content": d.content} for d in request.supplementary_docs]
+        if request.supplementary_docs else []
+    )
+
     result = orchestrator.run(
         transcript=request.transcript.strip(),
         website_url=request.website_url.strip(),
+        supplementary_docs=supp_docs,
     )
 
     logger.info(

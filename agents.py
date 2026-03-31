@@ -76,15 +76,27 @@ class ResearchAgent:
     def __init__(self) -> None:
         self.llm = LLMClient(model="gpt-4o")
 
-    def analyze(self, transcript: str, website_url: str) -> ProjectBrief:
+    def analyze(
+        self,
+        transcript: str,
+        website_url: str,
+        supplementary_docs: list[dict] | None = None,
+    ) -> ProjectBrief:
         logger.info("ResearchAgent: fetching website %s", website_url)
         website_text = _fetch_website_text(website_url)
         if not website_text:
             logger.warning("ResearchAgent: no website content retrieved; using transcript only")
 
-        logger.info("ResearchAgent: calling LLM (transcript_len=%d website_len=%d)",
-                    len(transcript), len(website_text))
-        raw = self.llm.research(transcript=transcript, website_text=website_text)
+        docs = supplementary_docs or []
+        logger.info(
+            "ResearchAgent: calling LLM (transcript_len=%d website_len=%d docs=%d)",
+            len(transcript), len(website_text), len(docs),
+        )
+        raw = self.llm.research(
+            transcript=transcript,
+            website_text=website_text,
+            supplementary_docs=docs,
+        )
 
         return ProjectBrief(
             title=raw.get("title", "SR&ED Project"),
@@ -176,10 +188,15 @@ class ReportOrchestrator:
         self.writer = WriterAgent()
         self.reviewer = ReviewerAgent()
 
-    def run(self, transcript: str, website_url: str) -> Dict:
+    def run(
+        self,
+        transcript: str,
+        website_url: str,
+        supplementary_docs: list[dict] | None = None,
+    ) -> Dict:
         # Step 1 — Research
         logger.info("Orchestrator: Step 1 — Research")
-        brief = self.researcher.analyze(transcript, website_url)
+        brief = self.researcher.analyze(transcript, website_url, supplementary_docs or [])
         logger.info("Orchestrator: selected project '%s'", brief.title)
 
         # Step 2 — Initial draft

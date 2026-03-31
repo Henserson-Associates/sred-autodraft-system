@@ -6,269 +6,537 @@
     <title>SR&ED Report Generator</title>
     <style>
       :root {
-        --bg: #f0f4f8;
+        --bg: #f1f5f9;
         --panel: #ffffff;
+        --sidebar-bg: #ffffff;
         --ink: #0f172a;
+        --ink-2: #1e293b;
         --muted: #64748b;
+        --muted-2: #94a3b8;
         --accent: #2563eb;
         --accent-hover: #1d4ed8;
+        --accent-pale: #eff6ff;
+        --accent-border: #bfdbfe;
         --border: #e2e8f0;
+        --border-2: #f1f5f9;
         --success: #16a34a;
-        --shadow: 0 4px 24px rgba(15, 23, 42, 0.07);
-        --radius: 12px;
+        --success-pale: #f0fdf4;
+        --danger: #b91c1c;
+        --danger-pale: #fef2f2;
+        --danger-border: #fecaca;
+        --shadow-sm: 0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+        --shadow: 0 4px 16px rgba(15,23,42,0.08);
+        --radius: 10px;
+        --radius-sm: 6px;
       }
-      * { box-sizing: border-box; margin: 0; padding: 0; }
-      body {
+
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+      html, body {
+        height: 100%;
+        overflow: hidden;
         font-family: "Inter", system-ui, -apple-system, sans-serif;
-        background: var(--bg);
         color: var(--ink);
-        min-height: 100vh;
+        background: var(--bg);
+        font-size: 14px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
       }
-      header {
+
+      /* ── App shell ─────────────────────────────────────────────────────── */
+      #app {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+
+      /* ── Header ────────────────────────────────────────────────────────── */
+      .app-header {
+        flex-shrink: 0;
+        height: 52px;
         background: var(--panel);
         border-bottom: 1px solid var(--border);
-        padding: 18px 32px;
         display: flex;
         align-items: center;
-        gap: 12px;
+        padding: 0 20px;
+        gap: 10px;
+        z-index: 10;
       }
-      header h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
-      header span { color: var(--muted); font-size: 14px; }
+      .app-header h1 {
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: var(--ink);
+      }
       .badge {
-        background: #eff6ff;
+        background: var(--accent-pale);
         color: var(--accent);
-        border: 1px solid #bfdbfe;
-        border-radius: 6px;
+        border: 1px solid var(--accent-border);
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 700;
+        padding: 2px 7px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+      .header-model {
+        margin-left: auto;
+        font-size: 12px;
+        color: var(--muted-2);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .header-model::before {
+        content: "";
+        display: inline-block;
+        width: 6px; height: 6px;
+        border-radius: 50%;
+        background: var(--success);
+      }
+
+      /* ── Workspace ─────────────────────────────────────────────────────── */
+      .workspace {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+      }
+
+      /* ── Sidebar ───────────────────────────────────────────────────────── */
+      .sidebar {
+        width: 380px;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid var(--border);
+        background: var(--sidebar-bg);
+        overflow: hidden;
+      }
+      .sidebar-scroll {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      .sidebar-footer {
+        flex-shrink: 0;
+        padding: 14px 20px;
+        border-top: 1px solid var(--border);
+        background: var(--sidebar-bg);
+      }
+
+      /* ── Input sections ────────────────────────────────────────────────── */
+      .input-section {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .section-label {
         font-size: 11px;
-        font-weight: 600;
-        padding: 2px 8px;
-        letter-spacing: 0.04em;
-      }
-      main {
-        max-width: 1280px;
-        margin: 0 auto;
-        padding: 28px 24px 48px;
-        display: grid;
-        grid-template-columns: 400px 1fr;
-        gap: 24px;
-        align-items: start;
-      }
-      @media (max-width: 860px) {
-        main { grid-template-columns: 1fr; }
-      }
-      .panel {
-        background: var(--panel);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        padding: 24px;
-        box-shadow: var(--shadow);
-      }
-      .panel-title {
-        font-size: 13px;
         font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 0.06em;
+        letter-spacing: 0.07em;
         color: var(--muted);
-        margin-bottom: 18px;
       }
-      label {
-        display: block;
+      .field-label {
         font-size: 13px;
         font-weight: 600;
-        color: var(--ink);
-        margin-bottom: 6px;
-        margin-top: 16px;
+        color: var(--ink-2);
+        margin-bottom: 2px;
       }
-      label:first-of-type { margin-top: 0; }
-      input[type="url"], textarea {
+      .field-hint {
+        font-size: 11px;
+        color: var(--muted-2);
+        margin-top: -4px;
+      }
+
+      input[type="url"] {
         width: 100%;
-        padding: 10px 12px;
+        padding: 8px 11px;
         border: 1px solid var(--border);
-        border-radius: 8px;
-        font-size: 14px;
+        border-radius: var(--radius-sm);
+        font-size: 13px;
         font-family: inherit;
         background: #fafbfc;
         color: var(--ink);
-        transition: border-color 0.15s;
         outline: none;
+        transition: border-color 0.15s, box-shadow 0.15s;
       }
-      input[type="url"]:focus, textarea:focus { border-color: var(--accent); }
-      textarea { min-height: 200px; resize: vertical; line-height: 1.6; }
-      .upload-row {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-        margin-bottom: 8px;
+      input[type="url"]:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
       }
-      .upload-btn {
-        flex-shrink: 0;
-        padding: 7px 14px;
-        border: 1px dashed var(--accent);
-        border-radius: 8px;
-        background: #eff6ff;
-        color: var(--accent);
+
+      textarea {
+        width: 100%;
+        padding: 8px 11px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
         font-size: 13px;
+        font-family: inherit;
+        background: #fafbfc;
+        color: var(--ink);
+        outline: none;
+        resize: vertical;
+        line-height: 1.6;
+        min-height: 160px;
+        transition: border-color 0.15s, box-shadow 0.15s;
+      }
+      textarea:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+      }
+
+      /* Upload controls */
+      .upload-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .upload-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 5px 10px;
+        border: 1px dashed var(--accent);
+        border-radius: var(--radius-sm);
+        background: var(--accent-pale);
+        color: var(--accent);
+        font-size: 12px;
         font-weight: 600;
         cursor: pointer;
         transition: background 0.12s;
         white-space: nowrap;
+        user-select: none;
       }
-      .upload-btn:hover { background: #dbeafe; }
-      .file-name {
-        font-size: 12px;
-        color: var(--muted);
+      .upload-chip:hover { background: #dbeafe; }
+      .upload-chip svg { flex-shrink: 0; }
+      .upload-status {
+        font-size: 11px;
+        color: var(--muted-2);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      .file-name.loaded { color: var(--success); font-weight: 600; }
-      .btn {
-        margin-top: 20px;
-        width: 100%;
-        padding: 12px;
+      .upload-status.ok { color: var(--success); font-weight: 600; }
+
+      /* Supplementary docs */
+      .drop-zone {
+        border: 1.5px dashed var(--border);
+        border-radius: var(--radius-sm);
+        padding: 14px;
+        text-align: center;
+        cursor: pointer;
+        transition: border-color 0.15s, background 0.15s;
+        color: var(--muted);
+        font-size: 12px;
+        user-select: none;
+      }
+      .drop-zone:hover, .drop-zone.drag-over {
+        border-color: var(--accent);
+        background: var(--accent-pale);
+        color: var(--accent);
+      }
+      .drop-zone svg { display: block; margin: 0 auto 6px; opacity: 0.5; }
+      .drop-zone.drag-over svg { opacity: 0.9; }
+
+      .doc-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin-top: 6px;
+      }
+      .doc-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        background: var(--success-pale);
+        border: 1px solid #bbf7d0;
+        border-radius: var(--radius-sm);
+        font-size: 12px;
+      }
+      .doc-item-name {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-weight: 500;
+        color: var(--ink-2);
+      }
+      .doc-item-size { color: var(--muted-2); flex-shrink: 0; }
+      .doc-remove {
+        flex-shrink: 0;
+        background: none;
         border: none;
-        border-radius: 8px;
+        cursor: pointer;
+        color: var(--muted);
+        padding: 1px 3px;
+        border-radius: 3px;
+        font-size: 14px;
+        line-height: 1;
+        transition: color 0.12s, background 0.12s;
+      }
+      .doc-remove:hover { color: var(--danger); background: var(--danger-pale); }
+
+      /* Generate button */
+      .btn-generate {
+        width: 100%;
+        padding: 11px;
+        border: none;
+        border-radius: var(--radius-sm);
         background: var(--accent);
         color: white;
         font-weight: 700;
-        font-size: 15px;
-        cursor: pointer;
-        transition: background 0.15s, transform 0.1s;
-      }
-      .btn:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
-      .btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
-      .error-msg {
-        margin-top: 12px;
-        padding: 10px 12px;
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        border-radius: 8px;
-        color: #b91c1c;
-        font-size: 13px;
-      }
-      /* Right panel */
-      .results-empty {
-        color: var(--muted);
         font-size: 14px;
-        text-align: center;
-        padding: 60px 20px;
+        font-family: inherit;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+        box-shadow: 0 2px 8px rgba(37,99,235,0.25);
       }
-      .results-empty svg { display: block; margin: 0 auto 12px; opacity: 0.3; }
+      .btn-generate:hover:not(:disabled) {
+        background: var(--accent-hover);
+        box-shadow: 0 4px 14px rgba(37,99,235,0.3);
+        transform: translateY(-1px);
+      }
+      .btn-generate:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+      }
+      .error-msg {
+        margin-top: 10px;
+        padding: 9px 11px;
+        background: var(--danger-pale);
+        border: 1px solid var(--danger-border);
+        border-radius: var(--radius-sm);
+        color: var(--danger);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      /* ── Content area ──────────────────────────────────────────────────── */
+      .content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      /* Empty state */
+      .empty-state {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: var(--muted-2);
+        text-align: center;
+        gap: 10px;
+      }
+      .empty-state svg { opacity: 0.25; }
+      .empty-state p { font-size: 13px; max-width: 260px; line-height: 1.6; }
+
       /* Loading */
-      .loading-wrap {
-        text-align: center;
-        padding: 60px 20px;
-        color: var(--muted);
+      .loading-state {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
       }
-      .spinner {
-        width: 40px; height: 40px;
+      .spinner-ring {
+        width: 44px; height: 44px;
         border: 3px solid var(--border);
         border-top-color: var(--accent);
         border-radius: 50%;
-        animation: spin 0.8s linear infinite;
-        margin: 0 auto 16px;
+        animation: spin 0.75s linear infinite;
       }
       @keyframes spin { to { transform: rotate(360deg); } }
-      .loading-steps { font-size: 13px; }
-      .loading-steps .step { padding: 4px 0; }
-      .loading-steps .step.active { color: var(--accent); font-weight: 600; }
-      .loading-steps .step.done { color: var(--success); }
+      .loading-label {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--ink-2);
+      }
+      .step-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 320px;
+      }
+      .step-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 14px;
+        border-radius: var(--radius-sm);
+        font-size: 13px;
+        color: var(--muted);
+        transition: background 0.2s;
+      }
+      .step-row.active {
+        background: var(--accent-pale);
+        color: var(--accent);
+        font-weight: 600;
+      }
+      .step-row.done { color: var(--success); }
+      .step-icon { font-size: 15px; width: 18px; text-align: center; flex-shrink: 0; }
+
       /* Project card */
       .project-card {
-        background: #eff6ff;
-        border: 1px solid #bfdbfe;
+        background: var(--accent-pale);
+        border: 1px solid var(--accent-border);
         border-radius: var(--radius);
-        padding: 16px 20px;
-        margin-bottom: 20px;
+        padding: 14px 18px;
       }
-      .project-card .project-title {
-        font-size: 16px;
+      .project-card-label {
+        font-size: 10px;
         font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
         color: var(--accent);
-        margin-bottom: 6px;
+        margin-bottom: 4px;
       }
-      .project-card .project-summary { font-size: 13px; color: var(--muted); line-height: 1.5; }
+      .project-card-title {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--ink);
+        margin-bottom: 6px;
+        line-height: 1.4;
+      }
+      .project-card-summary {
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
       /* Section cards */
       .section-card {
+        background: var(--panel);
         border: 1px solid var(--border);
         border-radius: var(--radius);
         overflow: hidden;
-        margin-bottom: 16px;
+        box-shadow: var(--shadow-sm);
       }
-      .section-card:last-child { margin-bottom: 0; }
       .section-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 12px 16px;
+        padding: 10px 16px;
         background: #f8fafc;
         border-bottom: 1px solid var(--border);
       }
-      .section-header-left { display: flex; align-items: center; gap: 10px; }
-      .section-line {
-        font-size: 11px;
+      .section-header-left {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+      .line-badge {
+        font-size: 10px;
         font-weight: 700;
         background: var(--ink);
         color: white;
         border-radius: 4px;
-        padding: 2px 7px;
+        padding: 2px 6px;
         letter-spacing: 0.04em;
       }
-      .section-name { font-size: 14px; font-weight: 600; }
-      .word-count { font-size: 12px; color: var(--muted); }
+      .section-name {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--ink-2);
+      }
+      .word-count {
+        font-size: 11px;
+        color: var(--muted-2);
+        background: var(--border-2);
+        padding: 2px 7px;
+        border-radius: 10px;
+      }
       .copy-btn {
-        padding: 6px 14px;
+        padding: 5px 12px;
         border: 1px solid var(--border);
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         background: white;
-        color: var(--ink);
+        color: var(--ink-2);
         font-size: 12px;
         font-weight: 600;
+        font-family: inherit;
         cursor: pointer;
         transition: background 0.12s, color 0.12s, border-color 0.12s;
         white-space: nowrap;
       }
       .copy-btn:hover { background: var(--accent); color: white; border-color: var(--accent); }
-      .copy-btn.copied { background: var(--success); color: white; border-color: var(--success); }
+      .copy-btn.copied {
+        background: var(--success);
+        color: white;
+        border-color: var(--success);
+      }
       .section-body {
         padding: 16px 18px;
-        font-size: 14px;
-        line-height: 1.75;
+        font-size: 13.5px;
+        line-height: 1.8;
         color: var(--ink);
         white-space: pre-wrap;
       }
+
+      /* Scrollbar */
+      ::-webkit-scrollbar { width: 6px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
   </head>
   <body>
-    <header>
-      <h1>SR&ED Report Generator</h1>
-      <span class="badge">Multi-Agent</span>
-      <span style="margin-left:4px; color:var(--muted); font-size:14px;">— powered by GPT-4o</span>
-    </header>
-    <main>
-      <div id="root"></div>
-    </main>
+    <div id="app"></div>
 
     <script type="module">
-      import React, { useState, useEffect, useRef } from "https://esm.sh/react@18.3.1";
+      import React, { useState, useEffect, useRef, useCallback } from "https://esm.sh/react@18.3.1";
       import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
 
+      // ── Constants ──────────────────────────────────────────────────────────
       const SECTION_META = {
-        uncertainty: { line: "242", name: "Technological Uncertainty" },
+        uncertainty:              { line: "242", name: "Technological Uncertainty" },
         systematic_investigation: { line: "244", name: "Work Performed" },
-        technological_advancement: { line: "246", name: "Technological Advancement" },
+        technological_advancement:{ line: "246", name: "Technological Advancement" },
       };
 
-      const LOADING_STEPS = [
-        { key: "research",  label: "Research Agent — analyzing transcript & website..." },
-        { key: "write",     label: "Writer Agent — drafting three sections..." },
-        { key: "review",    label: "Reviewer Agent — checking CRA compliance..." },
+      const STEPS = [
+        { key: "research", icon: "🔍", label: "Research Agent — analyzing website & documents..." },
+        { key: "write",    icon: "✍️",  label: "Writer Agent — drafting Lines 242, 244 & 246..." },
+        { key: "review",   icon: "⚖️",  label: "Reviewer Agent — checking CRA compliance..." },
       ];
 
-      function countWords(text) {
-        return text ? text.trim().split(/\s+/).filter(Boolean).length : 0;
+      const ACCEPTED_DOC_TYPES = ".txt,.md,.csv";
+
+      // ── Helpers ────────────────────────────────────────────────────────────
+      function countWords(t) {
+        return t ? t.trim().split(/\s+/).filter(Boolean).length : 0;
+      }
+      function fmtSize(bytes) {
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+      }
+      function readFileAsText(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload  = e => resolve(e.target.result);
+          reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+          reader.readAsText(file, "UTF-8");
+        });
       }
 
+      // ── Components ─────────────────────────────────────────────────────────
       function CopyButton({ text }) {
         const [copied, setCopied] = useState(false);
         const handle = () => {
@@ -280,12 +548,12 @@
         return React.createElement(
           "button",
           { className: `copy-btn${copied ? " copied" : ""}`, onClick: handle },
-          copied ? "Copied!" : "Copy"
+          copied ? "✓ Copied" : "Copy"
         );
       }
 
       function SectionCard({ sectionKey, text }) {
-        const meta = SECTION_META[sectionKey] || { line: "?", name: sectionKey };
+        const meta  = SECTION_META[sectionKey] || { line: "?", name: sectionKey };
         const words = countWords(text);
         return React.createElement(
           "div", { className: "section-card" },
@@ -293,9 +561,9 @@
             "div", { className: "section-header" },
             React.createElement(
               "div", { className: "section-header-left" },
-              React.createElement("span", { className: "section-line" }, `Line ${meta.line}`),
-              React.createElement("span", { className: "section-name" }, meta.name),
-              React.createElement("span", { className: "word-count" }, `${words} words`)
+              React.createElement("span", { className: "line-badge" }, `Line ${meta.line}`),
+              React.createElement("span", { className: "section-name"  }, meta.name),
+              React.createElement("span", { className: "word-count"    }, `${words} words`)
             ),
             React.createElement(CopyButton, { text })
           ),
@@ -303,14 +571,47 @@
         );
       }
 
-      function Results({ data }) {
+      function LoadingView() {
+        const [stepIdx, setStepIdx] = useState(0);
+        useEffect(() => {
+          const id = setInterval(
+            () => setStepIdx(i => Math.min(i + 1, STEPS.length - 1)),
+            14000
+          );
+          return () => clearInterval(id);
+        }, []);
+
         return React.createElement(
-          "div", null,
+          "div", { className: "loading-state" },
+          React.createElement("div", { className: "spinner-ring" }),
+          React.createElement("div", { className: "loading-label" }, "Generating report…"),
+          React.createElement(
+            "div", { className: "step-list" },
+            STEPS.map((s, i) =>
+              React.createElement(
+                "div", {
+                  key: s.key,
+                  className: `step-row${i === stepIdx ? " active" : i < stepIdx ? " done" : ""}`,
+                },
+                React.createElement("span", { className: "step-icon" },
+                  i < stepIdx ? "✓" : i === stepIdx ? s.icon : "○"
+                ),
+                s.label
+              )
+            )
+          )
+        );
+      }
+
+      function ResultsView({ data }) {
+        return React.createElement(
+          React.Fragment, null,
           React.createElement(
             "div", { className: "project-card" },
-            React.createElement("div", { className: "project-title" }, data.project_title),
+            React.createElement("div", { className: "project-card-label" }, "Selected SR&ED Project"),
+            React.createElement("div", { className: "project-card-title" }, data.project_title),
             data.project_summary && React.createElement(
-              "div", { className: "project-summary" }, data.project_summary
+              "div", { className: "project-card-summary" }, data.project_summary
             )
           ),
           Object.entries(data.sections).map(([key, text]) =>
@@ -319,81 +620,144 @@
         );
       }
 
-      function LoadingPanel() {
-        const [stepIdx, setStepIdx] = useState(0);
-        useEffect(() => {
-          const id = setInterval(() => {
-            setStepIdx(i => Math.min(i + 1, LOADING_STEPS.length - 1));
-          }, 15000);
-          return () => clearInterval(id);
-        }, []);
+      // ── Supplementary docs drop zone ───────────────────────────────────────
+      function DocsZone({ docs, onAdd, onRemove }) {
+        const inputRef   = useRef(null);
+        const [drag, setDrag] = useState(false);
+
+        const processFiles = useCallback(async (files) => {
+          for (const file of files) {
+            try {
+              const content = await readFileAsText(file);
+              onAdd({ name: file.name, size: file.size, content });
+            } catch {
+              // skip unreadable files
+            }
+          }
+        }, [onAdd]);
+
+        const onDrop = useCallback(e => {
+          e.preventDefault();
+          setDrag(false);
+          const files = [...e.dataTransfer.files].filter(f =>
+            /\.(txt|md|csv)$/i.test(f.name)
+          );
+          processFiles(files);
+        }, [processFiles]);
+
+        const onInputChange = useCallback(async e => {
+          const files = [...e.target.files];
+          await processFiles(files);
+          e.target.value = "";
+        }, [processFiles]);
+
         return React.createElement(
-          "div", { className: "loading-wrap" },
-          React.createElement("div", { className: "spinner" }),
-          React.createElement("div", { style: { fontWeight: 600, marginBottom: 14 } }, "Generating report..."),
+          "div", { className: "input-section" },
+          React.createElement("div", { className: "section-label" }, "Supporting Documents"),
           React.createElement(
-            "div", { className: "loading-steps" },
-            LOADING_STEPS.map((s, i) =>
+            "div", { className: "field-hint", style: { marginTop: 0 } },
+            "Optional — upload any supplementary files for the Research Agent (.txt, .md, .csv)"
+          ),
+          React.createElement(
+            "div", {
+              className: `drop-zone${drag ? " drag-over" : ""}`,
+              onClick: () => inputRef.current?.click(),
+              onDragOver:  e => { e.preventDefault(); setDrag(true);  },
+              onDragLeave: e => { e.preventDefault(); setDrag(false); },
+              onDrop,
+            },
+            React.createElement(
+              "svg", { width: 22, height: 22, fill: "none", viewBox: "0 0 24 24", stroke: "currentColor" },
+              React.createElement("path", {
+                strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 1.5,
+                d: "M12 16v-8m0 0l-3 3m3-3l3 3M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1"
+              })
+            ),
+            docs.length === 0
+              ? "Click to upload or drag files here"
+              : "Add more files"
+          ),
+          React.createElement("input", {
+            ref: inputRef, type: "file",
+            accept: ACCEPTED_DOC_TYPES, multiple: true,
+            style: { display: "none" },
+            onChange: onInputChange,
+          }),
+          docs.length > 0 && React.createElement(
+            "div", { className: "doc-list" },
+            docs.map((d, i) =>
               React.createElement(
-                "div", {
-                  key: s.key,
-                  className: `step${i === stepIdx ? " active" : i < stepIdx ? " done" : ""}`
-                },
-                i < stepIdx ? `✓ ${s.label}` : i === stepIdx ? `⟳ ${s.label}` : `○ ${s.label}`
+                "div", { key: i, className: "doc-item" },
+                React.createElement(
+                  "svg", { width: 13, height: 13, fill: "none", viewBox: "0 0 24 24", stroke: "currentColor", style: { flexShrink: 0, color: "var(--success)" } },
+                  React.createElement("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" })
+                ),
+                React.createElement("span", { className: "doc-item-name"  }, d.name),
+                React.createElement("span", { className: "doc-item-size"  }, fmtSize(d.size)),
+                React.createElement(
+                  "button", { className: "doc-remove", title: "Remove", onClick: () => onRemove(i) },
+                  "×"
+                )
               )
             )
           )
         );
       }
 
+      // ── Main App ───────────────────────────────────────────────────────────
       function App() {
-        const [url, setUrl] = useState("");
+        const [url,        setUrl]        = useState("");
         const [transcript, setTranscript] = useState("");
-        const [fileName, setFileName] = useState("");
-        const [result, setResult] = useState(null);
-        const [loading, setLoading] = useState(false);
-        const [error, setError] = useState("");
-        const fileInputRef = useRef(null);
+        const [txFileName, setTxFileName] = useState("");
+        const [docs,       setDocs]       = useState([]);   // {name, size, content}[]
+        const [result,     setResult]     = useState(null);
+        const [loading,    setLoading]    = useState(false);
+        const [error,      setError]      = useState("");
+        const txFileRef = useRef(null);
 
-        const handleFileUpload = (e) => {
+        // transcript file upload
+        const handleTxFile = e => {
           const file = e.target.files[0];
           if (!file) return;
-          if (!file.name.endsWith(".txt")) {
-            setError("Please upload a .txt file.");
-            return;
-          }
-          const reader = new FileReader();
-          reader.onload = (ev) => {
-            setTranscript(ev.target.result);
-            setFileName(file.name);
+          if (!file.name.endsWith(".txt")) { setError("Please upload a .txt file for the transcript."); return; }
+          readFileAsText(file).then(text => {
+            setTranscript(text);
+            setTxFileName(file.name);
             setError("");
-          };
-          reader.onerror = () => setError("Failed to read file.");
-          reader.readAsText(file, "UTF-8");
-          // reset so re-uploading same file triggers onChange
+          }).catch(() => setError("Failed to read file."));
           e.target.value = "";
         };
 
-        const submit = async (e) => {
+        // supplementary docs
+        const addDoc    = useCallback(doc  => setDocs(d => [...d, doc]), []);
+        const removeDoc = useCallback(idx  => setDocs(d => d.filter((_, i) => i !== idx)), []);
+
+        const submit = async e => {
           e.preventDefault();
           setError("");
           setResult(null);
           if (!transcript.trim()) { setError("Transcript is required — paste text or upload a .txt file."); return; }
-          if (!url.trim()) { setError("Website URL is required."); return; }
+          if (!url.trim())        { setError("Website URL is required."); return; }
 
           setLoading(true);
           try {
+            const payload = {
+              transcript,
+              website_url: url,
+              supplementary_docs: docs.length > 0
+                ? docs.map(d => ({ name: d.name, content: d.content }))
+                : null,
+            };
             const res = await fetch("/api/generate", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ transcript, website_url: url }),
+              body: JSON.stringify(payload),
             });
             if (!res.ok) {
               const detail = await res.json().catch(() => ({}));
               throw new Error(detail?.detail || `Server error ${res.status}`);
             }
-            const data = await res.json();
-            setResult(data);
+            setResult(await res.json());
           } catch (err) {
             setError(err.message);
           } finally {
@@ -401,91 +765,120 @@
           }
         };
 
-        const inputPanel = React.createElement(
-          "div", { className: "panel" },
-          React.createElement("div", { className: "panel-title" }, "Inputs"),
+        // ── Sidebar ──────────────────────────────────────────────────────
+        const sidebar = React.createElement(
+          "aside", { className: "sidebar" },
+
+          // scrollable form area
           React.createElement(
-            "form", { onSubmit: submit },
-            React.createElement("label", { htmlFor: "url" }, "Company Website URL"),
-            React.createElement("input", {
-              id: "url",
-              type: "url",
-              placeholder: "https://example.com",
-              value: url,
-              onChange: e => setUrl(e.target.value),
-              autoComplete: "off",
-            }),
+            "div", { className: "sidebar-scroll" },
+
+            // Company section
             React.createElement(
-              "label", { htmlFor: "transcript" },
-              "Meeting Transcript"
-            ),
-            // Upload row
-            React.createElement(
-              "div", { className: "upload-row" },
-              React.createElement(
-                "button", {
-                  type: "button",
-                  className: "upload-btn",
-                  onClick: () => fileInputRef.current && fileInputRef.current.click(),
-                },
-                "Upload .txt"
-              ),
-              React.createElement(
-                "span", { className: `file-name${fileName ? " loaded" : ""}` },
-                fileName ? `✓ ${fileName}` : "or paste text below"
-              ),
+              "div", { className: "input-section" },
+              React.createElement("div", { className: "section-label" }, "Company"),
+              React.createElement("label", { className: "field-label", htmlFor: "url" }, "Website URL"),
               React.createElement("input", {
-                ref: fileInputRef,
-                type: "file",
-                accept: ".txt",
-                style: { display: "none" },
-                onChange: handleFileUpload,
+                id: "url", type: "url",
+                placeholder: "https://example.com",
+                value: url,
+                onChange: e => setUrl(e.target.value),
+                autoComplete: "off",
               })
             ),
-            React.createElement("textarea", {
-              id: "transcript",
-              placeholder: "Paste the full meeting transcript here...",
-              value: transcript,
-              onChange: e => { setTranscript(e.target.value); if (fileName) setFileName(""); },
-            }),
+
+            // Transcript section
             React.createElement(
-              "button", { className: "btn", type: "submit", disabled: loading },
-              loading ? "Generating..." : "Generate SR&ED Report"
+              "div", { className: "input-section" },
+              React.createElement("div", { className: "section-label" }, "Meeting Transcript"),
+              React.createElement(
+                "div", { className: "upload-bar" },
+                React.createElement(
+                  "div", {
+                    className: "upload-chip",
+                    onClick: () => txFileRef.current?.click(),
+                  },
+                  React.createElement(
+                    "svg", { width: 12, height: 12, fill: "none", viewBox: "0 0 24 24", stroke: "currentColor" },
+                    React.createElement("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" })
+                  ),
+                  "Upload .txt"
+                ),
+                React.createElement("input", {
+                  ref: txFileRef, type: "file", accept: ".txt",
+                  style: { display: "none" }, onChange: handleTxFile,
+                }),
+                React.createElement(
+                  "span", { className: `upload-status${txFileName ? " ok" : ""}` },
+                  txFileName ? `✓ ${txFileName}` : "or paste below"
+                )
+              ),
+              React.createElement("textarea", {
+                placeholder: "Paste the full meeting transcript here…",
+                value: transcript,
+                onChange: e => {
+                  setTranscript(e.target.value);
+                  if (txFileName) setTxFileName("");
+                },
+              })
+            ),
+
+            // Supporting docs section
+            React.createElement(DocsZone, { docs, onAdd: addDoc, onRemove: removeDoc })
+          ),
+
+          // sticky footer with button + error
+          React.createElement(
+            "div", { className: "sidebar-footer" },
+            React.createElement(
+              "button", {
+                className: "btn-generate",
+                type: "button",
+                disabled: loading,
+                onClick: submit,
+              },
+              loading
+                ? [React.createElement("div", { key: "sp", style: { width: 14, height: 14, border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "white", borderRadius: "50%", animation: "spin 0.75s linear infinite" } }), "Generating…"]
+                : "Generate SR&ED Report"
             ),
             error && React.createElement("div", { className: "error-msg" }, error)
           )
         );
 
-        let rightContent;
+        // ── Content ──────────────────────────────────────────────────────
+        let content;
         if (loading) {
-          rightContent = React.createElement("div", { className: "panel" }, React.createElement(LoadingPanel));
+          content = React.createElement(LoadingView);
         } else if (result) {
-          rightContent = React.createElement("div", { className: "panel" },
-            React.createElement("div", { className: "panel-title" }, "Generated Report"),
-            React.createElement(Results, { data: result })
-          );
+          content = React.createElement(ResultsView, { data: result });
         } else {
-          rightContent = React.createElement(
-            "div", { className: "panel results-empty" },
+          content = React.createElement(
+            "div", { className: "empty-state" },
             React.createElement(
-              "svg", { width: 48, height: 48, fill: "none", viewBox: "0 0 24 24", stroke: "currentColor" },
-              React.createElement("path", {
-                strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 1.5,
-                d: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-              })
+              "svg", { width: 56, height: 56, fill: "none", viewBox: "0 0 24 24", stroke: "currentColor" },
+              React.createElement("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 1, d: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" })
             ),
-            "Enter a website URL and meeting transcript, then click Generate."
+            React.createElement("p", null, "Fill in the inputs on the left and click Generate to produce a CRA-ready SR&ED technical narrative.")
           );
         }
 
         return React.createElement(
           React.Fragment, null,
-          inputPanel,
-          rightContent
+          React.createElement(
+            "header", { className: "app-header" },
+            React.createElement("h1", null, "SR&ED Report Generator"),
+            React.createElement("span", { className: "badge" }, "Multi-Agent"),
+            React.createElement("span", { className: "header-model" }, "GPT-4o")
+          ),
+          React.createElement(
+            "div", { className: "workspace" },
+            sidebar,
+            React.createElement("main", { className: "content" }, content)
+          )
         );
       }
 
-      createRoot(document.getElementById("root")).render(React.createElement(App));
+      createRoot(document.getElementById("app")).render(React.createElement(App));
     </script>
   </body>
 </html>

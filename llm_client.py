@@ -24,6 +24,11 @@ in Canada with 15+ years of experience writing successful CRA claims.
 Your task: analyze a client meeting transcript and their company website, then identify and select \
 the single strongest SR&ED-eligible project to file a claim for.
 
+SUPPLEMENTARY DOCUMENTS: The user may provide optional supporting files (technical specs, prior reports, \
+emails, meeting notes). When present, treat these as primary source material alongside the transcript — \
+they often contain the most technically detailed evidence of SR&ED-eligible work. Cross-reference them \
+with the transcript to build the most complete picture of what was actually investigated.
+
 IMPORTANT — HANDLING SPARSE OR VAGUE TRANSCRIPTS:
 Meeting transcripts are often unhelpful: clients speak in business terms, skip technical details, \
 or the recording is incomplete. When the transcript is sparse, vague, or missing key technical \
@@ -216,11 +221,27 @@ class LLMClient:
 
     # ── Public methods ────────────────────────────────────────────────────────
 
-    def research(self, transcript: str, website_text: str) -> dict:
-        """Analyze transcript + website to identify and select the strongest SR&ED project."""
+    def research(
+        self,
+        transcript: str,
+        website_text: str,
+        supplementary_docs: list[dict] | None = None,
+    ) -> dict:
+        """Analyze transcript + website (+ optional supplementary docs) to select the strongest SR&ED project."""
+        docs = supplementary_docs or []
+        docs_section = ""
+        if docs:
+            parts = []
+            for d in docs:
+                # Truncate each doc to avoid context overflow
+                content = d.get("content", "")[:3000]
+                parts.append(f"--- {d.get('name', 'document')} ---\n{content}")
+            docs_section = "\n\nSUPPLEMENTARY DOCUMENTS:\n" + "\n\n".join(parts)
+
         user_msg = (
             f"COMPANY WEBSITE CONTENT:\n{website_text or '(not available)'}\n\n"
             f"MEETING TRANSCRIPT:\n{transcript}"
+            f"{docs_section}"
         )
         raw = self._call_llm(
             system=RESEARCH_SYSTEM,
