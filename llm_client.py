@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -14,6 +14,64 @@ if TYPE_CHECKING:
 load_dotenv()
 
 logger = logging.getLogger("sred_app.llm")
+
+
+# ─── Content validation tool ─────────────────────────────────────────────────
+
+CONTENT_LIMITS: Dict[str, dict] = {
+    "title": {"type": "chars", "max": 69},
+    "uncertainty": {"type": "words", "min": 300, "max": 350},
+    "systematic_investigation": {"type": "words", "min": 700, "max": 750},
+    "technological_advancement": {"type": "words", "min": 300, "max": 350},
+}
+
+
+def check_content(content: str, content_type: str) -> dict:
+    """
+    Tool: validate that generated content meets required word count (sections)
+    or character limit (title).  Returns a dict with 'valid' (bool) and
+    'feedback' (str | None) so the LLM agent can self-correct.
+    """
+    limits = CONTENT_LIMITS.get(content_type)
+    if not limits:
+        return {"valid": False, "feedback": f"Unknown content type: {content_type!r}"}
+
+    text = content.strip()
+    if limits["type"] == "chars":
+        count = len(text)
+        max_c = limits["max"]
+        if count <= max_c:
+            return {"valid": True, "character_count": count, "feedback": None}
+        return {
+            "valid": False,
+            "character_count": count,
+            "feedback": (
+                f"Title is {count} characters but must be {max_c} or fewer. "
+                f"Shorten by at least {count - max_c} character(s)."
+            ),
+        }
+    else:
+        words = len(text.split())
+        min_w, max_w = limits["min"], limits["max"]
+        if min_w <= words <= max_w:
+            return {"valid": True, "word_count": words, "feedback": None}
+        if words < min_w:
+            return {
+                "valid": False,
+                "word_count": words,
+                "feedback": (
+                    f"Content has {words} words but requires {min_w}–{max_w}. "
+                    f"Add approximately {min_w - words} more words."
+                ),
+            }
+        return {
+            "valid": False,
+            "word_count": words,
+            "feedback": (
+                f"Content has {words} words but requires {min_w}–{max_w}. "
+                f"Remove approximately {words - max_w} words."
+            ),
+        }
 
 
 # ─── System Prompts ──────────────────────────────────────────────────────────
@@ -79,6 +137,20 @@ OUTPUT FORMAT: Return valid JSON only, with these exact keys:
   "potential_advancement": "What new technical knowledge or principles were generated or attempted, including what was learned from failures",
   "selection_rationale": "1–2 sentences explaining why this project is the strongest SR&ED candidate, and note if the transcript was sparse so the claim is primarily inferred from the website"
 }"""
+
+
+TITLE_SYSTEM = """You are a senior SR&ED technical writer. Generate a concise, descriptive project \
+title for a T661 SR&ED claim.
+
+REQUIREMENTS:
+- Strictly fewer than 70 characters (including spaces) — this is a hard limit.
+- Describe the technical work, not the business outcome.
+- Use technical terminology appropriate for CRA review.
+- Common format: "Development of [Technical Approach] for [Problem Domain]"
+- No company names.
+
+Output the title as a single line of plain text with no quotes, labels, or punctuation \
+beyond what is part of the title itself."""
 
 
 WRITER_UNCERTAINTY = """You are a senior SR&ED technical writer. Write the Technological Uncertainty \
@@ -265,6 +337,19 @@ class LLMClient:
                 "selection_rationale": "",
             }
 
+    def generate_title(self, brief: "ProjectBrief") -> str:
+        """Generate a project title that is strictly fewer than 70 characters."""
+        user_msg = (
+            "Generate an SR&ED project title for the following project.\n\n"
+            + self._brief_to_context(brief)
+        )
+        return self._generate_with_check(
+            system=TITLE_SYSTEM,
+            user=user_msg,
+            content_type="title",
+            log_tag="generate-title",
+        )
+
     def write_section(
         self,
         section_key: str,
@@ -274,7 +359,12 @@ class LLMClient:
     ) -> str:
         system = self._writer_prompt(section_key, min_words, max_words)
         user_msg = self._brief_to_context(brief)
-        return self._call_llm(system=system, user=user_msg, log_tag=f"write-{section_key}")
+        return self._generate_with_check(
+            system=system,
+            user=user_msg,
+            content_type=section_key,
+            log_tag=f"write-{section_key}",
+        )
 
     def review_report(self, brief: "ProjectBrief", sections: Dict[str, str]) -> dict:
         """Review all three sections holistically."""
@@ -320,9 +410,70 @@ class LLMClient:
             f"ORIGINAL DRAFT ({section_key}):\n{draft}\n\n"
             f"REVIEWER FEEDBACK:\n{feedback}"
         )
-        return self._call_llm(system=system, user=user_msg, log_tag=f"revise-{section_key}")
+        return self._generate_with_check(
+            system=system,
+            user=user_msg,
+            content_type=section_key,
+            log_tag=f"revise-{section_key}",
+        )
 
     # ── Private helpers ───────────────────────────────────────────────────────
+
+    def _generate_with_check(
+        self,
+        system: str,
+        user: str,
+        content_type: str,
+        log_tag: str,
+        max_attempts: int = 3,
+    ) -> str:
+        """
+        Generate content and use the check_content tool to validate it.
+        If the content fails validation the feedback is fed back to the LLM
+        as a follow-up user message so it can self-correct, up to max_attempts.
+        """
+        messages: List[dict] = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        content = ""
+        for attempt in range(1, max_attempts + 1):
+            content = self._call_llm_messages(messages, log_tag=f"{log_tag}-a{attempt}")
+            result = check_content(content, content_type)
+            logger.info(
+                "check_content: type=%s valid=%s feedback=%s",
+                content_type, result["valid"], result.get("feedback"),
+            )
+            if result["valid"]:
+                break
+            if attempt < max_attempts:
+                messages += [
+                    {"role": "assistant", "content": content},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"The content does not meet the requirements. "
+                            f"Tool feedback: {result['feedback']} "
+                            f"Please rewrite the content addressing this issue."
+                        ),
+                    },
+                ]
+        return content
+
+    def _call_llm_messages(
+        self,
+        messages: List[dict],
+        log_tag: str,
+        json_mode: bool = False,
+    ) -> str:
+        kwargs: dict = {"model": self.model, "messages": messages}
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        response = self.client.chat.completions.create(**kwargs)
+        content = response.choices[0].message.content or ""
+        tokens = response.usage.total_tokens if response.usage else 0
+        logger.info("LLM %s complete. tokens=%d length=%d", log_tag, tokens, len(content))
+        return content.strip()
 
     def _writer_prompt(self, section_key: str, min_words: int, max_words: int) -> str:
         templates = {
@@ -352,18 +503,8 @@ class LLMClient:
         log_tag: str,
         json_mode: bool = False,
     ) -> str:
-        kwargs: dict = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-        }
-        if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
-
-        response = self.client.chat.completions.create(**kwargs)
-        content = response.choices[0].message.content or ""
-        tokens = response.usage.total_tokens if response.usage else 0
-        logger.info("LLM %s complete. tokens=%d length=%d", log_tag, tokens, len(content))
-        return content.strip()
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        return self._call_llm_messages(messages, log_tag=log_tag, json_mode=json_mode)

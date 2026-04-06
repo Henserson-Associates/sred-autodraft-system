@@ -17,7 +17,7 @@ MAX_REVISIONS = 3
 
 WORD_LIMITS = {
     "uncertainty": (300, 350),
-    "systematic_investigation": (650, 700),
+    "systematic_investigation": (700, 750),
     "technological_advancement": (300, 350),
 }
 
@@ -152,6 +152,22 @@ class WriterAgent:
         )
 
 
+class TitleAgent:
+    """
+    Generates a validated project title (strictly fewer than 70 characters)
+    from a ProjectBrief using the check_content tool.
+    """
+
+    def __init__(self) -> None:
+        self.llm = LLMClient(model="gpt-4o")
+
+    def generate(self, brief: ProjectBrief) -> str:
+        logger.info("TitleAgent: generating title (initial='%s')", brief.title)
+        title = self.llm.generate_title(brief)
+        logger.info("TitleAgent: final title='%s' (%d chars)", title, len(title))
+        return title
+
+
 class ReviewerAgent:
     """
     Reviews all three SR&ED sections holistically against CRA criteria.
@@ -185,6 +201,7 @@ class ReportOrchestrator:
 
     def __init__(self) -> None:
         self.researcher = ResearchAgent()
+        self.title_agent = TitleAgent()
         self.writer = WriterAgent()
         self.reviewer = ReviewerAgent()
 
@@ -199,13 +216,17 @@ class ReportOrchestrator:
         brief = self.researcher.analyze(transcript, website_url, supplementary_docs or [])
         logger.info("Orchestrator: selected project '%s'", brief.title)
 
-        # Step 2 — Initial draft
-        logger.info("Orchestrator: Step 2 — Initial write")
+        # Step 2 — Generate validated project title (< 70 characters)
+        logger.info("Orchestrator: Step 2 — Generate title")
+        project_title = self.title_agent.generate(brief)
+
+        # Step 3 — Initial draft
+        logger.info("Orchestrator: Step 3 — Initial write")
         sections = self.writer.write_all(brief)
 
-        # Step 3 — Review / revise loop
+        # Step 4 — Review / revise loop
         for attempt in range(1, MAX_REVISIONS + 1):
-            logger.info("Orchestrator: Step 3 — Review attempt %d/%d", attempt, MAX_REVISIONS)
+            logger.info("Orchestrator: Step 4 — Review attempt %d/%d", attempt, MAX_REVISIONS)
             approved, feedback = self.reviewer.review(brief, sections)
 
             if approved:
@@ -223,7 +244,7 @@ class ReportOrchestrator:
                 logger.warning("Orchestrator: max revisions reached; returning best available draft")
 
         return {
-            "project_title": brief.title,
+            "project_title": project_title,
             "project_summary": brief.selection_rationale,
             "sections": sections,
         }
