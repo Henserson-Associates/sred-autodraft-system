@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Dict
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -49,7 +48,7 @@ class ReportResponse(BaseModel):
     sections: Dict[str, str]
 
 
-@app.get("/api/health", response_class=JSONResponse, tags=["system"])
+@app.get("/api/health", tags=["system"])
 def health() -> Dict[str, str]:
     return {"status": "ok"}
 
