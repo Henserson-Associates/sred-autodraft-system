@@ -99,6 +99,35 @@ MAX_COMPLETION_TOKENS: Dict[str, int] = {
 }
 
 
+FIT_TO_LIMITS_SYSTEM = """You are a senior SR&ED technical writer.
+
+Task: rewrite the provided content so it satisfies the length constraints exactly, while preserving meaning.
+
+RULES:
+1. Do not introduce new technical claims not supported by the original content.
+2. Keep the content within the required length range (hard limit).
+3. Write in paragraphs only (no bullet points, no headings).
+4. Output ONLY the rewritten text.
+"""
+
+
+def _constraint_distance(result: dict, limits: dict) -> int:
+    if not result or not limits:
+        return 10**9
+    if limits.get("type") == "chars":
+        count = int(result.get("character_count", 10**9))
+        max_c = int(limits.get("max", 0))
+        return max(0, count - max_c)
+    count = int(result.get("word_count", 10**9))
+    min_w = int(limits.get("min", 0))
+    max_w = int(limits.get("max", 0))
+    if count < min_w:
+        return min_w - count
+    if count > max_w:
+        return count - max_w
+    return 0
+
+
 def max_completion_tokens_for(content_type: str) -> int | None:
     default = MAX_COMPLETION_TOKENS.get(content_type)
     env_key = f"SRED_MAX_COMPLETION_TOKENS_{content_type.upper()}"
@@ -639,16 +668,18 @@ class LLMClient:
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ]
-        content = ""
-        last_result: dict | None = None
-        for attempt in range(1, max_attempts + 1):
-            content = self._call_llm_messages(
-                messages,
-                log_tag=f"{log_tag}-a{attempt}",
+        def generate_once(*, local_messages: List[dict], tag: str) -> str:
+            return self._call_llm_messages(
+                local_messages,
+                log_tag=tag,
                 max_completion_tokens=max_completion_tokens_for(content_type),
             )
+
+        attempts: list[dict] = []
+        for attempt in range(1, max_attempts + 1):
+            content = generate_once(local_messages=messages, tag=f"{log_tag}-a{attempt}")
             result = check_content(content, content_type)
-            last_result = result
+            attempts.append({"phase": "initial", "attempt": attempt, "content": content, "result": result})
             logger.info(
                 "check_content: type=%s valid=%s feedback=%s",
                 content_type, result["valid"], result.get("feedback"),
@@ -667,15 +698,52 @@ class LLMClient:
                         ),
                     },
                 ]
-        if last_result and not last_result.get("valid", False):
+        best = min(
+            attempts,
+            key=lambda a: _constraint_distance(a["result"], CONTENT_LIMITS.get(content_type, {})),
+        )
+        if best["result"].get("valid", False):
+            return best["content"]
+
+        # Best-effort: final "fit to limits" pass. This tends to work better than repeated full rewrites.
+        limits = CONTENT_LIMITS.get(content_type, {})
+        feedback = best["result"].get("feedback")
+        fit_user = (
+            f"ORIGINAL CONTENT ({content_type}):\n{best['content']}\n\n"
+            f"REQUIREMENTS:\n{feedback}\n\n"
+            f"Rewrite the content so it satisfies the requirements exactly."
+        )
+        fit_messages: List[dict] = [
+            {"role": "system", "content": FIT_TO_LIMITS_SYSTEM},
+            {"role": "user", "content": fit_user},
+        ]
+        for i in range(1, 3):
+            fitted = generate_once(local_messages=fit_messages, tag=f"{log_tag}-fit{i}")
+            fitted_result = check_content(fitted, content_type)
+            attempts.append({"phase": "fit", "attempt": i, "content": fitted, "result": fitted_result})
+            if fitted_result.get("valid", False):
+                return fitted
+
+        # Still invalid. If strict mode enabled, fail; otherwise return closest attempt.
+        strict = os.getenv("SRED_STRICT_CONSTRAINTS", "0").strip() in {"1", "true", "True", "yes", "YES"}
+        best = min(
+            attempts,
+            key=lambda a: _constraint_distance(a["result"], CONTENT_LIMITS.get(content_type, {})),
+        )
+        if strict:
             raise ContentConstraintError(
                 content_type=content_type,
-                feedback=last_result.get("feedback"),
-                attempt_count=max_attempts,
-                stats=last_result,
+                feedback=best["result"].get("feedback"),
+                attempt_count=len([a for a in attempts if a["phase"] == "initial"]),
+                stats=best["result"],
             )
-
-        return content
+        logger.warning(
+            "check_content: returning best-effort invalid output type=%s distance=%d feedback=%s",
+            content_type,
+            _constraint_distance(best["result"], CONTENT_LIMITS.get(content_type, {})),
+            best["result"].get("feedback"),
+        )
+        return best["content"]
 
     def _call_llm_messages(
         self,
