@@ -165,6 +165,18 @@ OUTPUT FORMAT: Return valid JSON only, with these exact keys:
 }"""
 
 
+USER_REVISION_SYSTEM = """You are a senior SR&ED technical writer.
+
+Task: revise a single SR&ED report section based on user instructions, while preserving SR&ED eligibility.
+
+RULES:
+1. Follow the user's instructions as long as they do not introduce new technical claims not supported by the existing draft.
+2. Keep the content within {min_words}–{max_words} words (hard limit).
+3. Maintain CRA-appropriate tone: specific technical uncertainties, hypothesis-driven investigation, and technical advancement.
+4. Write in paragraphs only (no bullet points, no headings).
+5. Output ONLY the revised section text (no preamble).
+"""
+
 TITLE_SYSTEM = """You are a senior SR&ED technical writer. Generate a concise, descriptive project \
 title for a T661 SR&ED claim.
 
@@ -542,6 +554,33 @@ class LLMClient:
             user=user_msg,
             content_type=section_key,
             log_tag=f"revise-{section_key}",
+        )
+
+    def revise_section_with_user_instructions(
+        self,
+        section_key: str,
+        project_title: str,
+        project_summary: str,
+        current_section: str,
+        instructions: str,
+    ) -> str:
+        limits = CONTENT_LIMITS.get(section_key)
+        if not limits or limits.get("type") != "words":
+            raise ValueError(f"Unsupported section_key for user revision: {section_key!r}")
+        min_words, max_words = limits["min"], limits["max"]
+
+        system = USER_REVISION_SYSTEM.format(min_words=min_words, max_words=max_words)
+        user_msg = (
+            f"PROJECT TITLE:\n{project_title}\n\n"
+            f"PROJECT SUMMARY:\n{project_summary}\n\n"
+            f"CURRENT DRAFT ({section_key}):\n{current_section}\n\n"
+            f"USER INSTRUCTIONS:\n{instructions.strip()}"
+        )
+        return self._generate_with_check(
+            system=system,
+            user=user_msg,
+            content_type=section_key,
+            log_tag=f"user-revise-{section_key}",
         )
 
     # ── Private helpers ───────────────────────────────────────────────────────

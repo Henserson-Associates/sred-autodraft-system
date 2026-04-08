@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
+import time
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
 
@@ -14,6 +16,7 @@ from llm_client import LLMClient
 logger = logging.getLogger("sred_app.agents")
 
 MAX_REVISIONS = 3
+DEFAULT_TIME_BUDGET_SECONDS = int(os.getenv("SRED_TIME_BUDGET_SECONDS", "55"))
 
 WORD_LIMITS = {
     "uncertainty": (300, 350),
@@ -210,24 +213,114 @@ class ReportOrchestrator:
         transcript: str,
         website_url: str,
         supplementary_docs: list[dict] | None = None,
+        review: bool = True,
+        max_revisions: int | None = None,
+        time_budget_seconds: int | None = None,
     ) -> Dict:
+        started = time.monotonic()
+        budget = DEFAULT_TIME_BUDGET_SECONDS if time_budget_seconds is None else int(time_budget_seconds)
+        deadline = (started + budget) if budget > 0 else None
+
+        def time_left_seconds() -> float | None:
+            if deadline is None:
+                return None
+            return deadline - time.monotonic()
+
+        def out_of_time() -> bool:
+            remaining = time_left_seconds()
+            return remaining is not None and remaining <= 0
+
         # Step 1 — Research
         logger.info("Orchestrator: Step 1 — Research")
         brief = self.researcher.analyze(transcript, website_url, supplementary_docs or [])
         logger.info("Orchestrator: selected project '%s'", brief.title)
+        if out_of_time():
+            logger.warning("Orchestrator: time budget exceeded after research; returning partial draft")
+            return {
+                "project_title": brief.title,
+                "project_summary": brief.selection_rationale,
+                "sections": {},
+                "meta": {
+                    "timed_out": True,
+                    "time_budget_seconds": budget,
+                    "review_enabled": False,
+                    "review_attempts": 0,
+                    "revisions_applied": 0,
+                },
+            }
 
         # Step 2 — Generate validated project title (< 70 characters)
         logger.info("Orchestrator: Step 2 — Generate title")
         project_title = self.title_agent.generate(brief)
+        if out_of_time():
+            logger.warning("Orchestrator: time budget exceeded after title; returning partial draft")
+            return {
+                "project_title": project_title,
+                "project_summary": brief.selection_rationale,
+                "sections": {},
+                "meta": {
+                    "timed_out": True,
+                    "time_budget_seconds": budget,
+                    "review_enabled": False,
+                    "review_attempts": 0,
+                    "revisions_applied": 0,
+                },
+            }
 
         # Step 3 — Initial draft
         logger.info("Orchestrator: Step 3 — Initial write")
         sections = self.writer.write_all(brief)
+        if out_of_time():
+            logger.warning("Orchestrator: time budget exceeded after initial write; skipping review")
+            return {
+                "project_title": project_title,
+                "project_summary": brief.selection_rationale,
+                "sections": sections,
+                "meta": {
+                    "timed_out": True,
+                    "time_budget_seconds": budget,
+                    "review_enabled": False,
+                    "review_attempts": 0,
+                    "revisions_applied": 0,
+                },
+            }
+
+        effective_max_revisions = MAX_REVISIONS if max_revisions is None else max(0, int(max_revisions))
+        if not review or effective_max_revisions == 0:
+            logger.info("Orchestrator: review disabled; returning initial draft")
+            return {
+                "project_title": project_title,
+                "project_summary": brief.selection_rationale,
+                "sections": sections,
+                "meta": {
+                    "timed_out": False,
+                    "time_budget_seconds": budget,
+                    "review_enabled": False,
+                    "review_attempts": 0,
+                    "revisions_applied": 0,
+                },
+            }
 
         # Step 4 — Review / revise loop
-        for attempt in range(1, MAX_REVISIONS + 1):
-            logger.info("Orchestrator: Step 4 — Review attempt %d/%d", attempt, MAX_REVISIONS)
+        review_attempts = 0
+        revisions_applied = 0
+        approved = False
+        for attempt in range(1, effective_max_revisions + 1):
+            if out_of_time():
+                logger.warning("Orchestrator: time budget exceeded before review; returning best draft")
+                break
+
+            remaining = time_left_seconds()
+            if remaining is not None and remaining < 8:
+                logger.warning(
+                    "Orchestrator: only %.1fs left; skipping further review calls to avoid request timeout",
+                    remaining,
+                )
+                break
+
+            logger.info("Orchestrator: Step 4 — Review attempt %d/%d", attempt, effective_max_revisions)
             approved, feedback = self.reviewer.review(brief, sections)
+            review_attempts += 1
 
             if approved:
                 logger.info("Orchestrator: report approved on attempt %d", attempt)
@@ -237,14 +330,27 @@ class ReportOrchestrator:
             needs_revision = {k: v for k, v in feedback.items() if v}
             logger.info("Orchestrator: revising sections %s", list(needs_revision.keys()))
             for key, note in needs_revision.items():
+                if out_of_time():
+                    logger.warning("Orchestrator: time budget exceeded during revisions; returning best draft")
+                    break
                 if key in sections:
                     sections[key] = self.writer.revise_section(key, brief, sections[key], note)
+                    revisions_applied += 1
 
-            if attempt == MAX_REVISIONS:
+            if attempt == effective_max_revisions:
                 logger.warning("Orchestrator: max revisions reached; returning best available draft")
 
         return {
             "project_title": project_title,
             "project_summary": brief.selection_rationale,
             "sections": sections,
+            "meta": {
+                "timed_out": out_of_time(),
+                "time_budget_seconds": budget,
+                "review_enabled": True,
+                "review_attempts": review_attempts,
+                "revisions_applied": revisions_applied,
+                "approved": approved,
+                "elapsed_seconds": round(time.monotonic() - started, 3),
+            },
         }

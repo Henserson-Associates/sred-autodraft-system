@@ -34,19 +34,31 @@ Generate SR&ED draft sections using retrieval-augmented LLMs. The system exposes
   - Request body:
     ```json
     {
-      "industry": "pharmacy",
-      "tech_code": "01.01",
-      "project_description": "Brief project summary"
+      "transcript": "Full meeting transcript",
+      "website_url": "https://example.com",
+      "supplementary_docs": [
+        { "name": "notes.txt", "content": "..." }
+      ],
+      "review": false,
+      "max_revisions": 3,
+      "time_budget_seconds": 55
     }
     ```
+
+- `POST /api/generate-docx` (same request body as `/api/generate`) â†’ returns a downloadable `.docx` rendered from `templates/sred_report_template.docx`.
+- `POST /api/revise-section` â†’ revise a single section with user instructions while keeping CRA word limits.
+- `POST /api/render-docx` â†’ render a `.docx` from the current `project_title`, `project_summary`, and `sections` (does not re-run the LLM).
   - Response:
     ```json
     {
+      "project_title": "…",
+      "project_summary": "…",
       "sections": {
         "uncertainty": "...",
         "systematic_investigation": "...",
         "technological_advancement": "..."
-      }
+      },
+      "meta": { "approved": true }
     }
     ```
 
@@ -60,6 +72,7 @@ Generate SR&ED draft sections using retrieval-augmented LLMs. The system exposes
 
 - Required env vars: `OPENAI_API_KEY` (and optionally `OPENAI_MODEL`).
 - Default model: `gpt-5.4`.
+- Optional: `SRED_TIME_BUDGET_SECONDS` (defaults to 55) to keep requests under common reverse-proxy timeouts.
 
 ## Future Ideas
 
