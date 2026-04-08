@@ -59,7 +59,7 @@ Generate SR&ED draft sections using retrieval-augmented LLMs. The system exposes
 ## Environment
 
 - Required env vars: `OPENAI_API_KEY` (and optionally `OPENAI_MODEL`).
-- Default model: `gpt-4o-mini`.
+- Default model: `gpt-5.4`.
 
 ## Future Ideas
 

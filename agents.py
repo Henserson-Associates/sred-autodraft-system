@@ -74,7 +74,7 @@ class ResearchAgent:
     """
 
     def __init__(self) -> None:
-        self.llm = LLMClient(model="gpt-4o")
+        self.llm = LLMClient(model="gpt-5.4")
 
     def analyze(
         self,
@@ -118,7 +118,7 @@ class WriterAgent:
     """
 
     def __init__(self) -> None:
-        self.llm = LLMClient(model="gpt-4o")
+        self.llm = LLMClient(model="gpt-5.4")
 
     def write_all(self, brief: ProjectBrief) -> Dict[str, str]:
         sections: Dict[str, str] = {}
@@ -159,7 +159,7 @@ class TitleAgent:
     """
 
     def __init__(self) -> None:
-        self.llm = LLMClient(model="gpt-4o")
+        self.llm = LLMClient(model="gpt-5.4")
 
     def generate(self, brief: ProjectBrief) -> str:
         logger.info("TitleAgent: generating title (initial='%s')", brief.title)
@@ -175,7 +175,7 @@ class ReviewerAgent:
     """
 
     def __init__(self) -> None:
-        self.llm = LLMClient(model="gpt-4o")
+        self.llm = LLMClient(model="gpt-5.4")
 
     def review(
         self,

@@ -414,7 +414,7 @@ INSTRUCTIONS:
 
 class LLMClient:
     def __init__(self, model: str | None = None) -> None:
-        self.model = model or os.getenv("OPENAI_MODEL", "gpt-4o")
+        self.model = model or os.getenv("OPENAI_MODEL", "gpt-5.4")
         self.client = OpenAI()
         logger.info("LLMClient initialized model=%s", self.model)
 
