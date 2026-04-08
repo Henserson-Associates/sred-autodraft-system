@@ -311,6 +311,35 @@
         transform: none;
         box-shadow: none;
       }
+      .btn-secondary {
+        width: 100%;
+        margin-top: 10px;
+        padding: 11px;
+        border-radius: var(--radius-sm);
+        border: 1px solid rgba(15, 23, 42, 0.16);
+        background: rgba(15, 23, 42, 0.04);
+        color: var(--ink-1);
+        font-weight: 700;
+        font-size: 14px;
+        font-family: inherit;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+      }
+      .btn-secondary:hover:not(:disabled) {
+        background: rgba(15, 23, 42, 0.07);
+        box-shadow: 0 2px 10px rgba(2,6,23,0.08);
+        transform: translateY(-1px);
+      }
+      .btn-secondary:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+      }
       .error-msg {
         margin-top: 10px;
         padding: 9px 11px;
@@ -744,6 +773,7 @@
         const [docs,       setDocs]       = useState([]);   // {name, size, content}[]
         const [result,     setResult]     = useState(null);
         const [loading,    setLoading]    = useState(false);
+        const [downloading,setDownloading]= useState(false);
         const [error,      setError]      = useState("");
         const txFileRef = useRef(null);
 
@@ -794,6 +824,51 @@
             setError(err.message);
           } finally {
             setLoading(false);
+          }
+        };
+
+        const downloadDocx = async e => {
+          e.preventDefault();
+          setError("");
+          if (!transcript.trim()) { setError("Transcript is required — paste text or upload a .txt file."); return; }
+          if (!url.trim())        { setError("Website URL is required."); return; }
+
+          setDownloading(true);
+          try {
+            const payload = {
+              transcript,
+              website_url: url,
+              supplementary_docs: docs.length > 0
+                ? docs.map(d => ({ name: d.name, content: d.content }))
+                : null,
+            };
+            const res = await fetch("/api/generate-docx", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            if (!res.ok) {
+              const detail = await res.json().catch(() => ({}));
+              throw new Error(detail?.detail || `Server error ${res.status}`);
+            }
+
+            const blob = await res.blob();
+            const cd = res.headers.get("Content-Disposition") || "";
+            const match = cd.match(/filename=\"?([^\";]+)\"?/i);
+            const filename = (match && match[1]) ? match[1] : "sred_report.docx";
+
+            const objUrl = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = objUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(objUrl), 1000);
+          } catch (err) {
+            setError(err.message);
+          } finally {
+            setDownloading(false);
           }
         };
 
@@ -866,12 +941,23 @@
               "button", {
                 className: "btn-generate",
                 type: "button",
-                disabled: loading,
+                disabled: loading || downloading,
                 onClick: submit,
               },
               loading
                 ? [React.createElement("div", { key: "sp", style: { width: 14, height: 14, border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "white", borderRadius: "50%", animation: "spin 0.75s linear infinite" } }), "Generating…"]
                 : "Generate SR&ED Report"
+            ),
+            React.createElement(
+              "button", {
+                className: "btn-secondary",
+                type: "button",
+                disabled: loading || downloading,
+                onClick: downloadDocx,
+              },
+              downloading
+                ? [React.createElement("div", { key: "sp2", style: { width: 14, height: 14, border: "2px solid rgba(2,6,23,0.25)", borderTopColor: "rgba(2,6,23,0.8)", borderRadius: "50%", animation: "spin 0.75s linear infinite" } }), "Preparing Word…"]
+                : "Download Word (.docx)"
             ),
             error && React.createElement("div", { className: "error-msg" }, error)
           )
