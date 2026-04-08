@@ -651,6 +651,15 @@
         const [instructions, setInstructions] = useState("");
         const [saving, setSaving] = useState(false);
         const [err, setErr] = useState("");
+        const panelRef = useRef(null);
+        const textareaRef = useRef(null);
+
+        useEffect(() => {
+          if (!open) return;
+          // Ensure the prompt box is visible even for long sections.
+          panelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          setTimeout(() => textareaRef.current?.focus(), 0);
+        }, [open]);
 
         const save = async () => {
           setErr("");
@@ -681,21 +690,21 @@
               "div", { style: { display: "flex", gap: 8, alignItems: "center" } },
               React.createElement(
                 "button",
-                { className: "copy-btn secondary", onClick: () => setOpen(o => !o) },
+                { className: "copy-btn secondary", type: "button", onClick: () => setOpen(o => !o) },
                 open ? "Close" : "Revise"
               ),
               React.createElement(CopyButton, { text })
             )
           ),
-          React.createElement("div", { className: "section-body" }, text),
           open && React.createElement(
-            "div", { className: "revise-panel" },
+            "div", { className: "revise-panel", ref: panelRef },
             React.createElement(
               "div", { className: "revise-hint" },
               "Describe what to change. The server keeps the CRA word limits."
             ),
             React.createElement("textarea", {
               className: "revise-textarea",
+              ref: textareaRef,
               placeholder: "E.g. Emphasize the uncertainty around X under Y conditions; remove business context; add one failed experiment; keep it CRA-technical.",
               value: instructions,
               onChange: e => setInstructions(e.target.value),
@@ -709,11 +718,12 @@
               ),
               React.createElement(
                 "button",
-                { className: "copy-btn", onClick: save, disabled: saving },
+                { className: "copy-btn", type: "button", onClick: save, disabled: saving },
                 saving ? "Revising…" : "Apply"
               )
             )
-          )
+          ),
+          React.createElement("div", { className: "section-body" }, text)
         );
       }
 
