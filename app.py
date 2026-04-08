@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from agents import ReportOrchestrator
 from docx_export import DOCX_MIME, render_report_docx, suggested_report_filename
-from llm_client import LLMClient
+from llm_client import ContentConstraintError, LLMClient
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -108,14 +108,26 @@ def generate_report(request: ReportRequest) -> ReportResponse:
         if request.supplementary_docs else []
     )
 
-    result = orchestrator.run(
-        transcript=request.transcript.strip(),
-        website_url=request.website_url.strip(),
-        supplementary_docs=supp_docs,
-        review=request.review,
-        max_revisions=request.max_revisions,
-        time_budget_seconds=request.time_budget_seconds,
-    )
+    try:
+        result = orchestrator.run(
+            transcript=request.transcript.strip(),
+            website_url=request.website_url.strip(),
+            supplementary_docs=supp_docs,
+            review=request.review,
+            max_revisions=request.max_revisions,
+            time_budget_seconds=request.time_budget_seconds,
+        )
+    except ContentConstraintError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "content_constraints_failed",
+                "content_type": exc.content_type,
+                "feedback": exc.feedback,
+                "attempts": exc.attempt_count,
+                "stats": exc.stats,
+            },
+        ) from exc
 
     logger.info(
         "Report complete: title='%s' sections=%s",
@@ -147,13 +159,25 @@ def revise_section(request: ReviseSectionRequest) -> ReviseSectionResponse:
         raise HTTPException(status_code=400, detail="Draft section content is required.")
 
     llm = LLMClient()
-    revised = llm.revise_section_with_user_instructions(
-        section_key=request.section_key,
-        project_title=request.project_title,
-        project_summary=request.project_summary or "",
-        current_section=current,
-        instructions=request.instructions,
-    )
+    try:
+        revised = llm.revise_section_with_user_instructions(
+            section_key=request.section_key,
+            project_title=request.project_title,
+            project_summary=request.project_summary or "",
+            current_section=current,
+            instructions=request.instructions,
+        )
+    except ContentConstraintError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "content_constraints_failed",
+                "content_type": exc.content_type,
+                "feedback": exc.feedback,
+                "attempts": exc.attempt_count,
+                "stats": exc.stats,
+            },
+        ) from exc
     return ReviseSectionResponse(section_key=request.section_key, content=revised)
 
 
@@ -204,14 +228,26 @@ def generate_report_docx(request: ReportRequest) -> StreamingResponse:
         if request.supplementary_docs else []
     )
 
-    result = orchestrator.run(
-        transcript=request.transcript.strip(),
-        website_url=request.website_url.strip(),
-        supplementary_docs=supp_docs,
-        review=request.review,
-        max_revisions=request.max_revisions,
-        time_budget_seconds=request.time_budget_seconds,
-    )
+    try:
+        result = orchestrator.run(
+            transcript=request.transcript.strip(),
+            website_url=request.website_url.strip(),
+            supplementary_docs=supp_docs,
+            review=request.review,
+            max_revisions=request.max_revisions,
+            time_budget_seconds=request.time_budget_seconds,
+        )
+    except ContentConstraintError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "content_constraints_failed",
+                "content_type": exc.content_type,
+                "feedback": exc.feedback,
+                "attempts": exc.attempt_count,
+                "stats": exc.stats,
+            },
+        ) from exc
 
     context = {
         "project_title": result.get("project_title", ""),

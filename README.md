@@ -73,6 +73,7 @@ Generate SR&ED draft sections using retrieval-augmented LLMs. The system exposes
 - Required env vars: `OPENAI_API_KEY` (and optionally `OPENAI_MODEL`).
 - Default model: `gpt-5.4`.
 - Optional: `SRED_TIME_BUDGET_SECONDS` (defaults to 55) to keep requests under common reverse-proxy timeouts.
+- Optional: `SRED_MAX_COMPLETION_TOKENS_<CONTENT_TYPE>` to cap model output tokens per section (e.g. `SRED_MAX_COMPLETION_TOKENS_SYSTEMATIC_INVESTIGATION=1700`).
 
 ## Future Ideas
 

@@ -74,6 +74,43 @@ def check_content(content: str, content_type: str) -> dict:
         }
 
 
+class ContentConstraintError(ValueError):
+    def __init__(
+        self,
+        *,
+        content_type: str,
+        feedback: str | None,
+        attempt_count: int,
+        stats: dict | None = None,
+    ) -> None:
+        super().__init__(feedback or f"Content failed constraints for {content_type}")
+        self.content_type = content_type
+        self.feedback = feedback
+        self.attempt_count = attempt_count
+        self.stats = stats or {}
+
+
+MAX_COMPLETION_TOKENS: Dict[str, int] = {
+    # Heuristic caps. These limit runaway verbosity, but do not guarantee word counts.
+    "title": 40,
+    "uncertainty": 900,
+    "systematic_investigation": 1700,
+    "technological_advancement": 900,
+}
+
+
+def max_completion_tokens_for(content_type: str) -> int | None:
+    default = MAX_COMPLETION_TOKENS.get(content_type)
+    env_key = f"SRED_MAX_COMPLETION_TOKENS_{content_type.upper()}"
+    if env_key in os.environ:
+        try:
+            value = int(os.environ[env_key])
+            return value if value > 0 else None
+        except ValueError:
+            return default
+    return default
+
+
 # ─── System Prompts ──────────────────────────────────────────────────────────
 
 RESEARCH_SYSTEM = """You are a senior SR&ED (Scientific Research & Experimental Development) consultant \
@@ -603,9 +640,15 @@ class LLMClient:
             {"role": "user", "content": user},
         ]
         content = ""
+        last_result: dict | None = None
         for attempt in range(1, max_attempts + 1):
-            content = self._call_llm_messages(messages, log_tag=f"{log_tag}-a{attempt}")
+            content = self._call_llm_messages(
+                messages,
+                log_tag=f"{log_tag}-a{attempt}",
+                max_completion_tokens=max_completion_tokens_for(content_type),
+            )
             result = check_content(content, content_type)
+            last_result = result
             logger.info(
                 "check_content: type=%s valid=%s feedback=%s",
                 content_type, result["valid"], result.get("feedback"),
@@ -624,6 +667,14 @@ class LLMClient:
                         ),
                     },
                 ]
+        if last_result and not last_result.get("valid", False):
+            raise ContentConstraintError(
+                content_type=content_type,
+                feedback=last_result.get("feedback"),
+                attempt_count=max_attempts,
+                stats=last_result,
+            )
+
         return content
 
     def _call_llm_messages(
@@ -631,11 +682,24 @@ class LLMClient:
         messages: List[dict],
         log_tag: str,
         json_mode: bool = False,
+        max_completion_tokens: int | None = None,
     ) -> str:
         kwargs: dict = {"model": self.model, "messages": messages}
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
-        response = self.client.chat.completions.create(**kwargs)
+        if max_completion_tokens is not None:
+            kwargs["max_completion_tokens"] = int(max_completion_tokens)
+        try:
+            response = self.client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            # Backward-compatibility: some older stacks only accept max_tokens.
+            msg = str(exc)
+            if max_completion_tokens is not None and "max_completion_tokens" in msg:
+                kwargs.pop("max_completion_tokens", None)
+                kwargs["max_tokens"] = int(max_completion_tokens)
+                response = self.client.chat.completions.create(**kwargs)
+            else:
+                raise
         content = response.choices[0].message.content or ""
         tokens = response.usage.total_tokens if response.usage else 0
         logger.info("LLM %s complete. tokens=%d length=%d", log_tag, tokens, len(content))

@@ -593,6 +593,16 @@
       function countWords(t) {
         return t ? t.trim().split(/\s+/).filter(Boolean).length : 0;
       }
+      function errorDetailToMessage(detail, status) {
+        const d = detail && detail.detail;
+        if (!d) return `Server error ${status}`;
+        if (typeof d === "string") return d;
+        if (typeof d === "object") {
+          if (d.feedback) return d.feedback;
+          try { return JSON.stringify(d); } catch { /* ignore */ }
+        }
+        return `Server error ${status}`;
+      }
       function fmtSize(bytes) {
         if (bytes < 1024) return `${bytes} B`;
         if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -913,7 +923,7 @@
             });
             if (!res.ok) {
               const detail = await res.json().catch(() => ({}));
-              throw new Error(detail?.detail || `Server error ${res.status}`);
+              throw new Error(errorDetailToMessage(detail, res.status));
             }
             setResult(await res.json());
           } catch (err) {
@@ -939,7 +949,7 @@
           });
           if (!res.ok) {
             const detail = await res.json().catch(() => ({}));
-            throw new Error(detail?.detail || `Server error ${res.status}`);
+            throw new Error(errorDetailToMessage(detail, res.status));
           }
           const data = await res.json();
           setResult(prev => ({
@@ -969,7 +979,7 @@
             });
             if (!res.ok) {
               const detail = await res.json().catch(() => ({}));
-              throw new Error(detail?.detail || `Server error ${res.status}`);
+              throw new Error(errorDetailToMessage(detail, res.status));
             }
 
             const blob = await res.blob();
